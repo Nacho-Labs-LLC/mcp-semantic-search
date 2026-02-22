@@ -1,0 +1,44 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.nacho-labs-llc/mcp-semantic-search",
+  "description": "Local semantic search for AI coding tools. Index decisions, patterns, and context — recall them by meaning, not keywords. Powered by nachos-embeddings (Transformers.js). No API keys, no cloud, no costs.",
+  "title": "Semantic Search MCP Server",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/nacho-labs-llc/mcp-semantic-search",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@nacho-labs/mcp-semantic-search",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MCP_SEMANTIC_STORE",
+          "description": "Path to the JSON file where the index is persisted. Defaults to .semantic-store.json in the working directory.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "MCP_SEMANTIC_SIMILARITY",
+          "description": "Minimum similarity threshold (0-1). Defaults to 0.6.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "MCP_SEMANTIC_MODEL",
+          "description": "Embedding model to use. Defaults to Xenova/all-MiniLM-L6-v2.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}
