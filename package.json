@@ -1,6 +1,6 @@
 {
   "name": "@nacho-labs/mcp-semantic-search",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server for local semantic search — give Claude Code, Cursor, and other AI tools persistent memory powered by nachos-embeddings",
   "type": "module",
   "main": "./dist/index.js",
@@ -58,7 +58,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@nacho-labs/nachos-embeddings": "^0.1.0",
+    "@nacho-labs/nachos-embeddings": "^0.2.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
