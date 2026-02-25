@@ -58,7 +58,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@nacho-labs/nachos-embeddings": "file:../nachos-embeddings",
+    "@nacho-labs/nachos-embeddings": "^0.3.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
