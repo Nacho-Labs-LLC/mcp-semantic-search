@@ -1,316 +1,407 @@
 #!/usr/bin/env node
 
-/**
- * MCP Semantic Search Server
- *
- * Gives AI tools (Claude Code, Cursor, etc.) persistent semantic memory
- * powered by local vector embeddings. No API keys, no cloud, no costs.
- *
- * Usage:
- *   npx @nacho-labs/mcp-semantic-search
- *   npx @nacho-labs/mcp-semantic-search --store /path/to/store.json
- *   npx @nacho-labs/mcp-semantic-search --similarity 0.5
- */
-
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { SemanticSearch } from '@nacho-labs/nachos-embeddings';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-
-// --- Configuration via CLI args and env vars ---
+import { EnhancedSemanticSearch } from '@nacho-labs/nachos-embeddings';
+import { resolve } from 'node:path';
 
 function getConfig() {
   const args = process.argv.slice(2);
 
   function getArg(name: string, fallback: string): string {
     const idx = args.indexOf(`--${name}`);
-    if (idx !== -1 && idx + 1 < args.length) {
-      return args[idx + 1]!;
-    }
-    return fallback;
+    return idx !== -1 && idx + 1 < args.length ? args[idx + 1]! : fallback;
   }
 
-  const storePath = resolve(
-    process.env['MCP_SEMANTIC_STORE'] ??
-    getArg('store', '.semantic-store.json')
-  );
+  function getBool(name: string, fallback: boolean): boolean {
+    const value = process.env[`MCP_SEMANTIC_${name.toUpperCase()}`] ?? getArg(name, fallback.toString());
+    return value === 'true' || value === '1';
+  }
 
-  const minSimilarity = parseFloat(
-    process.env['MCP_SEMANTIC_SIMILARITY'] ??
-    getArg('similarity', '0.6')
-  );
-
-  const model =
-    process.env['MCP_SEMANTIC_MODEL'] ??
-    getArg('model', 'Xenova/all-MiniLM-L6-v2');
-
-  const cacheDir =
-    process.env['MCP_SEMANTIC_CACHE_DIR'] ??
-    getArg('cache-dir', '.cache/transformers');
-
-  return { storePath, minSimilarity, model, cacheDir };
+  return {
+    storePath: resolve(process.env.MCP_SEMANTIC_STORE ?? getArg('store', '.semantic-store.json')),
+    minSimilarity: parseFloat(process.env.MCP_SEMANTIC_SIMILARITY ?? getArg('similarity', '0.6')),
+    model: process.env.MCP_SEMANTIC_MODEL ?? getArg('model', 'Xenova/all-MiniLM-L6-v2'),
+    cacheDir: process.env.MCP_SEMANTIC_CACHE_DIR ?? getArg('cache-dir', '.cache/transformers'),
+    autoChunk: getBool('auto-chunk', true),
+    deduplicateExact: getBool('deduplicate-exact', true),
+    deduplicateSimilarity: parseFloat(process.env.MCP_SEMANTIC_DEDUPLICATE_SIMILARITY ?? getArg('deduplicate-similarity', '0.95')),
+    temporalBoost: getBool('temporal-boost', true),
+    verbose: getBool('verbose', false),
+  };
 }
 
 const config = getConfig();
 
-// --- Initialize search engine ---
+interface Metrics {
+  searches: number;
+  documentsAdded: number;
+  documentsRemoved: number;
+  errors: number;
+  startTime: number;
+}
 
-const search = new SemanticSearch<Record<string, string>>({
+const metrics: Metrics = {
+  searches: 0,
+  documentsAdded: 0,
+  documentsRemoved: 0,
+  errors: 0,
+  startTime: Date.now(),
+};
+
+const search = new EnhancedSemanticSearch({
   minSimilarity: config.minSimilarity,
   model: config.model,
   cacheDir: config.cacheDir,
+  autoSave: true,
+  storePath: config.storePath,
+  autoChunk: config.autoChunk,
+  deduplicateExact: config.deduplicateExact,
+  deduplicateSimilarity: config.deduplicateSimilarity,
+  temporalBoost: config.temporalBoost,
+  verbose: config.verbose,
 });
 
+async function initWithRetry(maxRetries = 3): Promise<void> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      if (config.verbose) {
+        console.error(`[Init] Attempt ${attempt}/${maxRetries}`);
+      }
+      await search.init();
+      if (config.verbose) {
+        console.error(`[Init] Loaded ${search.size()} documents`);
+      }
+      return;
+    } catch (err) {
+      if (attempt === maxRetries) {
+        console.error('[Init] Failed after', maxRetries, 'attempts. Internet required on first run (~25MB download).', err);
+        throw err;
+      }
+      console.error(`[Init] Retry in 2s...`, err);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+}
+
 try {
-  await search.init();
-} catch (err) {
-  console.error(
-    'Failed to load embedding model.',
-    'An internet connection is required on first run to download the model (~25MB).',
-    err
-  );
+  await initWithRetry();
+} catch {
   process.exit(1);
 }
 
-// Load persisted index
-if (existsSync(config.storePath)) {
-  try {
-    const raw = await readFile(config.storePath, 'utf-8');
-    const data = JSON.parse(raw);
-    if (Array.isArray(data)) {
-      search.import(data);
+class OpQueue {
+  private queue = Promise.resolve();
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    const prev = this.queue;
+    let resolve: ((val: T | PromiseLike<T>) => void) | undefined;
+    let reject: ((err: unknown) => void) | undefined;
+
+    this.queue = new Promise<void>((res, rej) => {
+      resolve = res as any;
+      reject = rej;
+    });
+
+    try {
+      await prev;
+      const result = await fn();
+      resolve!(result);
+      return result;
+    } catch (err) {
+      reject!(err);
+      metrics.errors++;
+      throw err;
     }
-  } catch (err) {
-    console.error(`Warning: Failed to load store from ${config.storePath}:`, err);
   }
 }
 
-async function persist() {
-  const dir = dirname(config.storePath);
-  if (!existsSync(dir)) {
-    await mkdir(dir, { recursive: true });
-  }
-  await writeFile(config.storePath, JSON.stringify(search.export()));
-}
-
-// --- MCP Server ---
+const opQueue = new OpQueue();
 
 const server = new McpServer(
+  { name: 'mcp-semantic-search-enhanced', version: '0.2.0' },
+  { capabilities: { logging: {} } }
+);
+
+server.registerTool(
+  'semantic_health',
   {
-    name: 'mcp-semantic-search',
-    version: '0.1.0',
+    title: 'Health Check',
+    description: 'Server status, metrics, and configuration',
+    inputSchema: z.object({}),
   },
-  {
-    capabilities: {
-      logging: {},
-    },
+  async () => {
+    try {
+      await search.search('test', { limit: 1 });
+
+      const uptime = Math.floor((Date.now() - metrics.startTime) / 1000);
+      const uptimeStr = uptime < 60 ? `${uptime}s` : uptime < 3600 ? `${Math.floor(uptime / 60)}m` : `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`;
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: [
+            '✅ Healthy',
+            '',
+            '📊 Metrics:',
+            `   Documents: ${search.size()}`,
+            `   Searches: ${metrics.searches}`,
+            `   Added: ${metrics.documentsAdded}`,
+            `   Removed: ${metrics.documentsRemoved}`,
+            `   Errors: ${metrics.errors}`,
+            `   Uptime: ${uptimeStr}`,
+            '',
+            '⚙️ Config:',
+            `   Model: ${config.model}`,
+            `   Store: ${config.storePath}`,
+            `   Min similarity: ${config.minSimilarity}`,
+            `   Auto-chunk: ${config.autoChunk}`,
+            `   Dedup: exact=${config.deduplicateExact}, fuzzy=${config.deduplicateSimilarity}`,
+            `   Temporal boost: ${config.temporalBoost}`,
+          ].join('\n'),
+        }],
+      };
+    } catch (err) {
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `❌ Unhealthy: ${err instanceof Error ? err.message : String(err)}`,
+        }],
+      };
+    }
   }
 );
 
-// Tool: Semantic search
 server.registerTool(
   'semantic_search',
   {
     title: 'Semantic Search',
-    description:
-      'Search indexed documents by meaning. Finds relevant content even when the wording differs from the query. Use this to recall past decisions, find related code patterns, or look up previously indexed context.',
+    description: 'Search by meaning with optional metadata filters',
     inputSchema: z.object({
-      query: z.string().describe('Natural language search query'),
-      limit: z
-        .number()
-        .optional()
-        .default(5)
-        .describe('Maximum number of results to return'),
+      query: z.string().describe('Search query'),
+      limit: z.number().optional().default(5).describe('Max results'),
+      minSimilarity: z.number().optional().describe('Min score (0-1)'),
+      kind: z.string().optional().describe('Filter by metadata.kind'),
+      tags: z.array(z.string()).optional().describe('Filter by metadata.tags'),
+      since: z.string().optional().describe('Filter by metadata.timestamp >= ISO date'),
     }),
   },
-  async ({ query, limit }) => {
-    const results = await search.search(query, { limit });
+  async ({ query, limit, minSimilarity, kind, tags, since }) => {
+    return opQueue.run(async () => {
+      const startTime = Date.now();
 
-    if (results.length === 0) {
+      const results = await search.search(query, {
+        limit,
+        ...(minSimilarity !== undefined && { minSimilarity }),
+        filter: (meta) => {
+          if (kind && meta?.kind !== kind) return false;
+          if (tags && (!meta?.tags || !tags.some((t) => meta.tags?.includes(t)))) return false;
+          if (since && meta?.timestamp && meta.timestamp < Date.parse(since)) return false;
+          return true;
+        },
+      });
+
+      metrics.searches++;
+      const elapsed = Date.now() - startTime;
+
+      if (results.length === 0) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `🔍 No results for "${query}" (${elapsed}ms)`,
+          }],
+        };
+      }
+
+      const formatted = results
+        .map((r, i) => {
+          const preview = r.text.substring(0, 200) + (r.text.length > 200 ? '...' : '');
+          const metaStr = r.metadata && Object.keys(r.metadata).length > 0 ? `\n   📎 ${JSON.stringify(r.metadata)}` : '';
+          return `${i + 1}. [${(r.similarity * 100).toFixed(0)}%] ${preview}${metaStr}`;
+        })
+        .join('\n\n');
+
       return {
-        content: [{ type: 'text' as const, text: 'No relevant results found.' }],
+        content: [{
+          type: 'text' as const,
+          text: `🔍 Found ${results.length} in ${elapsed}ms:\n\n${formatted}`,
+        }],
       };
-    }
-
-    const formatted = results
-      .map(
-        (r, i) =>
-          `${i + 1}. [${(r.similarity * 100).toFixed(0)}% match] ${r.text}` +
-          (r.metadata && Object.keys(r.metadata).length > 0
-            ? `\n   metadata: ${JSON.stringify(r.metadata)}`
-            : '')
-      )
-      .join('\n\n');
-
-    return {
-      content: [
-        { type: 'text' as const, text: `Found ${results.length} result(s):\n\n${formatted}` },
-      ],
-    };
+    });
   }
 );
 
-// Tool: Index a document
 server.registerTool(
   'semantic_index',
   {
     title: 'Index Document',
-    description:
-      'Add a document to the semantic search index for later recall. Use this to remember decisions, patterns, file summaries, conventions, debugging insights, or any context worth recalling later. Documents persist across sessions.',
+    description: 'Add document to search index (auto-chunks, deduplicates, persists)',
     inputSchema: z.object({
-      id: z
-        .string()
-        .describe(
-          'Unique document ID. Use descriptive IDs like "adr-012", "auth-pattern", "deploy-steps"'
-        ),
-      text: z.string().describe('The text content to index and make searchable'),
-      metadata: z
-        .record(z.string())
-        .optional()
-        .describe('Optional key-value metadata (e.g. {"kind": "decision", "date": "2026-02-22"})'),
+      id: z.string().describe('Unique ID (e.g., "auth-pattern", "adr-012")'),
+      text: z.string().describe('Content to index'),
+      metadata: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional().describe('Optional metadata'),
     }),
   },
   async ({ id, text, metadata }) => {
-    await search.addDocument({ id, text, metadata });
-    await persist();
-    return {
-      content: [
-        {
+    return opQueue.run(async () => {
+      const startTime = Date.now();
+
+      await search.addDocument({ id, text, metadata: metadata as any });
+
+      metrics.documentsAdded++;
+      const elapsed = Date.now() - startTime;
+
+      return {
+        content: [{
           type: 'text' as const,
-          text: `Indexed "${id}" (${search.size()} total documents in store)`,
-        },
-      ],
-    };
+          text: [
+            `✅ Indexed "${id}" (${elapsed}ms)`,
+            `📊 ${search.size()} documents total`,
+            `💾 Saved to ${config.storePath}`,
+            `🔍 Test: semantic_search("${id}")`,
+          ].join('\n'),
+        }],
+      };
+    });
   }
 );
 
-// Tool: Batch index multiple documents
 server.registerTool(
   'semantic_index_batch',
   {
-    title: 'Batch Index Documents',
-    description:
-      'Add multiple documents to the index at once. More efficient than indexing one at a time.',
+    title: 'Batch Index',
+    description: 'Add multiple documents at once',
     inputSchema: z.object({
-      documents: z.array(
-        z.object({
-          id: z.string().describe('Unique document ID'),
-          text: z.string().describe('Text content to index'),
-          metadata: z
-            .record(z.string())
-            .optional()
-            .describe('Optional key-value metadata'),
-        })
-      ).describe('Array of documents to index'),
+      documents: z.array(z.object({
+        id: z.string(),
+        text: z.string(),
+        metadata: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional(),
+      })),
     }),
   },
   async ({ documents }) => {
-    await search.addDocuments(documents);
-    await persist();
-    return {
-      content: [
-        {
+    return opQueue.run(async () => {
+      const startTime = Date.now();
+
+      await search.addDocuments(documents.map((d) => ({ ...d, metadata: d.metadata as any })));
+
+      metrics.documentsAdded += documents.length;
+      const elapsed = Date.now() - startTime;
+
+      return {
+        content: [{
           type: 'text' as const,
-          text: `Indexed ${documents.length} documents (${search.size()} total in store)`,
-        },
-      ],
-    };
+          text: [
+            `✅ Indexed ${documents.length} documents (${elapsed}ms)`,
+            `   ${Math.round(documents.length / (elapsed / 1000))}/sec`,
+            `📊 ${search.size()} documents total`,
+          ].join('\n'),
+        }],
+      };
+    });
   }
 );
 
-// Tool: Remove a document
 server.registerTool(
   'semantic_remove',
   {
     title: 'Remove Document',
-    description: 'Remove a document from the semantic search index by its ID.',
+    description: 'Delete by ID',
     inputSchema: z.object({
-      id: z.string().describe('Document ID to remove'),
+      id: z.string(),
     }),
   },
   async ({ id }) => {
-    const removed = search.remove(id);
-    if (removed) await persist();
-    return {
-      content: [
-        {
+    return opQueue.run(async () => {
+      const removed = search.remove(id);
+
+      if (removed) {
+        metrics.documentsRemoved++;
+      }
+
+      return {
+        content: [{
           type: 'text' as const,
           text: removed
-            ? `Removed "${id}" (${search.size()} documents remaining)`
-            : `Document "${id}" not found in index`,
-        },
-      ],
-    };
+            ? `✅ Removed "${id}"\n📊 ${search.size()} remaining`
+            : `⚠️ "${id}" not found`,
+        }],
+      };
+    });
   }
 );
 
-// Tool: Get index stats
 server.registerTool(
   'semantic_stats',
   {
     title: 'Index Stats',
-    description:
-      'Get information about the semantic search index: document count and storage location.',
+    description: 'Detailed index information',
     inputSchema: z.object({}),
   },
   async () => ({
-    content: [
-      {
-        type: 'text' as const,
-        text: [
-          `Documents indexed: ${search.size()}`,
-          `Store location: ${config.storePath}`,
-          `Model: ${config.model}`,
-          `Min similarity: ${config.minSimilarity}`,
-        ].join('\n'),
-      },
-    ],
+    content: [{
+      type: 'text' as const,
+      text: [
+        '📊 Index Stats',
+        '',
+        `Documents: ${search.size()}`,
+        `Store: ${config.storePath}`,
+        `Model: ${config.model}`,
+        `Min similarity: ${config.minSimilarity}`,
+        '',
+        'Features:',
+        `   Auto-chunk: ${config.autoChunk}`,
+        `   Dedup (exact): ${config.deduplicateExact}`,
+        `   Dedup (fuzzy): ${config.deduplicateSimilarity > 0 ? config.deduplicateSimilarity : 'off'}`,
+        `   Temporal boost: ${config.temporalBoost}`,
+        '',
+        'Usage:',
+        `   Searches: ${metrics.searches}`,
+        `   Added: ${metrics.documentsAdded}`,
+        `   Removed: ${metrics.documentsRemoved}`,
+        `   Errors: ${metrics.errors}`,
+      ].join('\n'),
+    }],
   })
 );
 
-// Tool: Clear all documents
 server.registerTool(
   'semantic_clear',
   {
     title: 'Clear Index',
-    description:
-      'Remove ALL documents from the semantic search index. This is irreversible.',
+    description: 'Remove all documents (irreversible)',
     inputSchema: z.object({
-      confirm: z
-        .boolean()
-        .describe('Must be true to confirm clearing all documents'),
+      confirm: z.boolean().describe('Must be true'),
     }),
   },
   async ({ confirm }) => {
     if (!confirm) {
       return {
-        content: [
-          {
-            type: 'text' as const,
-            text: 'Clear cancelled. Set confirm: true to clear all documents.',
-          },
-        ],
+        content: [{
+          type: 'text' as const,
+          text: '⚠️ Cancelled. Set confirm: true to proceed',
+        }],
       };
     }
 
-    const count = search.size();
-    search.clear();
-    await persist();
-    return {
-      content: [
-        {
+    return opQueue.run(async () => {
+      const count = search.size();
+      search.clear();
+
+      return {
+        content: [{
           type: 'text' as const,
-          text: `Cleared ${count} documents from the index.`,
-        },
-      ],
-    };
+          text: `✅ Cleared ${count} documents\n💾 Saved to ${config.storePath}`,
+        }],
+      };
+    });
   }
 );
 
-// --- Start server ---
-
 const transport = new StdioServerTransport();
 await server.connect(transport);
+
+if (config.verbose) {
+  console.error('[Server] Ready');
+}
