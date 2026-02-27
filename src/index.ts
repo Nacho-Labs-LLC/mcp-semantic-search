@@ -314,7 +314,7 @@ server.registerTool(
   },
   async ({ id }) => {
     return opQueue.run(async () => {
-      const removed = search.remove(id);
+      const removed = await search.remove(id);
 
       if (removed) {
         metrics.documentsRemoved++;
