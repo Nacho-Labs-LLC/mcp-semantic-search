@@ -1,7 +1,7 @@
 {
   "name": "@nacho-labs/mcp-semantic-search",
-  "version": "0.2.0",
-  "description": "MCP server for local semantic search — give Claude Code, Cursor, and other AI tools persistent memory powered by nachos-embeddings",
+  "version": "0.3.0",
+  "description": "MCP server for semantic search — give Claude Code, Cursor, and other AI tools persistent memory via local Transformers.js or AWS Bedrock embeddings",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -45,7 +45,9 @@
     "claude-code",
     "ai-memory",
     "local",
-    "privacy"
+    "privacy",
+    "bedrock",
+    "aws"
   ],
   "author": "Nate Richardson <hello@naterichardson.com> (https://naterichardson.com)",
   "license": "MIT",
@@ -58,10 +60,14 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@nacho-labs/nachos-embeddings": "^0.3.0",
+    "@nacho-labs/nachos-embeddings": "^0.4.0",
     "zod": "^3.23.0"
   },
+  "optionalDependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.0.0"
+  },
   "devDependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.0.0",
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0"
   }

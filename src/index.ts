@@ -4,6 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { EnhancedSemanticSearch } from '@nacho-labs/nachos-embeddings';
+import type { EmbeddingProvider } from '@nacho-labs/nachos-embeddings';
 import { resolve } from 'node:path';
 
 function getConfig() {
@@ -21,7 +22,7 @@ function getConfig() {
 
   return {
     storePath: resolve(process.env.MCP_SEMANTIC_STORE ?? getArg('store', '.semantic-store.json')),
-    minSimilarity: parseFloat(process.env.MCP_SEMANTIC_SIMILARITY ?? getArg('similarity', '0.6')),
+    minSimilarity: parseFloat(process.env.MCP_SEMANTIC_SIMILARITY ?? getArg('similarity', '0.4')),
     model: process.env.MCP_SEMANTIC_MODEL ?? getArg('model', 'Xenova/all-MiniLM-L6-v2'),
     cacheDir: process.env.MCP_SEMANTIC_CACHE_DIR ?? getArg('cache-dir', '.cache/transformers'),
     autoChunk: getBool('auto-chunk', true),
@@ -29,7 +30,30 @@ function getConfig() {
     deduplicateSimilarity: parseFloat(process.env.MCP_SEMANTIC_DEDUPLICATE_SIMILARITY ?? getArg('deduplicate-similarity', '0.95')),
     temporalBoost: getBool('temporal-boost', true),
     verbose: getBool('verbose', false),
+
+    // Bedrock provider settings
+    provider: (process.env.MCP_SEMANTIC_PROVIDER ?? getArg('provider', 'transformers')) as 'transformers' | 'bedrock',
+    bedrockRegion: process.env.MCP_SEMANTIC_BEDROCK_REGION ?? getArg('bedrock-region', 'us-east-1'),
+    bedrockModel: process.env.MCP_SEMANTIC_BEDROCK_MODEL ?? getArg('bedrock-model', 'amazon.titan-embed-text-v2:0'),
+    bedrockProfile: process.env.MCP_SEMANTIC_BEDROCK_PROFILE ?? getArg('bedrock-profile', ''),
+    bedrockDimensions: parseInt(process.env.MCP_SEMANTIC_BEDROCK_DIMENSIONS ?? getArg('bedrock-dimensions', '1024'), 10),
   };
+}
+
+async function createProvider(config: ReturnType<typeof getConfig>): Promise<EmbeddingProvider | undefined> {
+  if (config.provider !== 'bedrock') {
+    return undefined; // Use default Transformers.js
+  }
+
+  const { BedrockProvider } = await import('@nacho-labs/nachos-embeddings/bedrock');
+
+  return new BedrockProvider({
+    region: config.bedrockRegion,
+    modelId: config.bedrockModel,
+    ...(config.bedrockProfile ? { credentials: { strategy: 'profile' as const, profile: config.bedrockProfile } } : {}),
+    modelOptions: { dimensions: config.bedrockDimensions },
+    progressLogging: config.verbose,
+  });
 }
 
 const config = getConfig();
@@ -50,7 +74,10 @@ const metrics: Metrics = {
   startTime: Date.now(),
 };
 
+const provider = await createProvider(config);
+
 const search = new EnhancedSemanticSearch({
+  ...(provider ? { provider } : {}),
   minSimilarity: config.minSimilarity,
   model: config.model,
   cacheDir: config.cacheDir,
@@ -153,7 +180,9 @@ server.registerTool(
             `   Uptime: ${uptimeStr}`,
             '',
             '⚙️ Config:',
-            `   Model: ${config.model}`,
+            `   Provider: ${config.provider}`,
+            `   Model: ${config.provider === 'bedrock' ? config.bedrockModel : config.model}`,
+            `   ${config.provider === 'bedrock' ? `Region: ${config.bedrockRegion}` : `Cache: ${config.cacheDir}`}`,
             `   Store: ${config.storePath}`,
             `   Min similarity: ${config.minSimilarity}`,
             `   Auto-chunk: ${config.autoChunk}`,
@@ -346,8 +375,9 @@ server.registerTool(
         '📊 Index Stats',
         '',
         `Documents: ${search.size()}`,
+        `Provider: ${config.provider}`,
+        `Model: ${config.provider === 'bedrock' ? config.bedrockModel : config.model}`,
         `Store: ${config.storePath}`,
-        `Model: ${config.model}`,
         `Min similarity: ${config.minSimilarity}`,
         '',
         'Features:',
@@ -387,7 +417,7 @@ server.registerTool(
 
     return opQueue.run(async () => {
       const count = search.size();
-      search.clear();
+      await search.clear();
 
       return {
         content: [{
