@@ -268,7 +268,7 @@ server.registerTool(
     description: 'Add document to search index (auto-chunks, deduplicates, persists)',
     inputSchema: z.object({
       id: z.string().describe('Unique ID (e.g., "auth-pattern", "adr-012")'),
-      text: z.string().describe('Content to index'),
+      text: z.string().max(1000000).describe('Content to index'),
       metadata: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional().describe('Optional metadata'),
     }),
   },
@@ -304,7 +304,7 @@ server.registerTool(
     inputSchema: z.object({
       documents: z.array(z.object({
         id: z.string(),
-        text: z.string(),
+        text: z.string().max(1000000),
         metadata: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional(),
       })),
     }),
