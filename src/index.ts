@@ -132,7 +132,7 @@ class OpQueue {
     });
 
     try {
-      await prev;
+      await prev.catch(() => {});
       const result = await fn();
       resolve!(result);
       return result;
@@ -223,7 +223,7 @@ server.registerTool(
       const results = await search.search(query, {
         limit,
         ...(minSimilarity !== undefined && { minSimilarity }),
-        filter: (meta) => {
+        filter: (meta: any) => {
           if (kind && meta?.kind !== kind) return false;
           if (tags && (!meta?.tags || !tags.some((t) => meta.tags?.includes(t)))) return false;
           if (since && meta?.timestamp && meta.timestamp < Date.parse(since)) return false;
