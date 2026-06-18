@@ -16,7 +16,7 @@ function getConfig() {
   }
 
   function getBool(name: string, fallback: boolean): boolean {
-    const value = process.env[`MCP_SEMANTIC_${name.toUpperCase()}`] ?? getArg(name, fallback.toString());
+    const value = process.env[`MCP_SEMANTIC_${name.replace(/-/g, '_').toUpperCase()}`] ?? getArg(name, fallback.toString());
     return value === 'true' || value === '1';
   }
 
