@@ -151,6 +151,16 @@ const server = new McpServer(
   { capabilities: { logging: {} } }
 );
 
+function formatUptime(uptimeSeconds: number): string {
+  if (uptimeSeconds < 60) {
+    return `${uptimeSeconds}s`;
+  }
+  if (uptimeSeconds < 3600) {
+    return `${Math.floor(uptimeSeconds / 60)}m`;
+  }
+  return `${Math.floor(uptimeSeconds / 3600)}h ${Math.floor((uptimeSeconds % 3600) / 60)}m`;
+}
+
 server.registerTool(
   'semantic_health',
   {
@@ -163,7 +173,7 @@ server.registerTool(
       await search.search('test', { limit: 1 });
 
       const uptime = Math.floor((Date.now() - metrics.startTime) / 1000);
-      const uptimeStr = uptime < 60 ? `${uptime}s` : uptime < 3600 ? `${Math.floor(uptime / 60)}m` : `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`;
+      const uptimeStr = formatUptime(uptime);
 
       return {
         content: [{
