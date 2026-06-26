@@ -7,6 +7,9 @@ import { EnhancedSemanticSearch } from '@nacho-labs/nachos-embeddings';
 import type { EmbeddingProvider } from '@nacho-labs/nachos-embeddings';
 import { resolve } from 'node:path';
 
+const MAX_LENGTH = 1_000_000;
+const MAX_ITEMS = 100;
+
 function getConfig() {
   const args = process.argv.slice(2);
 
@@ -303,10 +306,10 @@ server.registerTool(
     description: 'Add multiple documents at once',
     inputSchema: z.object({
       documents: z.array(z.object({
-        id: z.string(),
-        text: z.string(),
-        metadata: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional(),
-      })),
+        id: z.string().max(MAX_LENGTH),
+        text: z.string().max(MAX_LENGTH),
+        metadata: z.record(z.union([z.string().max(MAX_LENGTH), z.number(), z.boolean(), z.array(z.string().max(MAX_LENGTH)).max(MAX_ITEMS)])).optional(),
+      })).max(MAX_ITEMS),
     }),
   },
   async ({ documents }) => {
