@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { EnhancedSemanticSearch } from '@nacho-labs/nachos-embeddings';
 import type { EmbeddingProvider } from '@nacho-labs/nachos-embeddings';
 import { resolve } from 'node:path';
+import { OpQueue } from './queue.js';
 
 const MAX_LENGTH = 1_000_000;
 const MAX_ITEMS = 100;
@@ -121,33 +122,9 @@ try {
   process.exit(1);
 }
 
-class OpQueue {
-  private queue = Promise.resolve();
-
-  async run<T>(fn: () => Promise<T>): Promise<T> {
-    const prev = this.queue;
-    let resolve: ((val: T | PromiseLike<T>) => void) | undefined;
-    let reject: ((err: unknown) => void) | undefined;
-
-    this.queue = new Promise<void>((res, rej) => {
-      resolve = res as any;
-      reject = rej;
-    });
-
-    try {
-      await prev.catch(() => {});
-      const result = await fn();
-      resolve!(result);
-      return result;
-    } catch (err) {
-      reject!(err);
-      metrics.errors++;
-      throw err;
-    }
-  }
-}
-
-const opQueue = new OpQueue();
+const opQueue = new OpQueue(() => {
+  metrics.errors++;
+});
 
 const server = new McpServer(
   { name: 'mcp-semantic-search-enhanced', version: '0.2.0' },
