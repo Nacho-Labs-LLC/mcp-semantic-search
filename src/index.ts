@@ -279,7 +279,7 @@ server.registerTool(
     return opQueue.run(async () => {
       const startTime = Date.now();
 
-      await search.addDocument({ id, text, metadata: metadata as any });
+      await search.addDocument({ id, text, metadata });
 
       metrics.documentsAdded++;
       const elapsed = Date.now() - startTime;
@@ -316,7 +316,7 @@ server.registerTool(
     return opQueue.run(async () => {
       const startTime = Date.now();
 
-      await search.addDocuments(documents.map((d) => ({ ...d, metadata: d.metadata as any })));
+      await search.addDocuments(documents.map((d) => ({ ...d, metadata: d.metadata })));
 
       metrics.documentsAdded += documents.length;
       const elapsed = Date.now() - startTime;
