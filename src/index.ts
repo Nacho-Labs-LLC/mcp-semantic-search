@@ -136,23 +136,21 @@ class OpQueue {
 
   async run<T>(fn: () => Promise<T>): Promise<T> {
     const prev = this.queue;
-    let resolve: ((val: T | PromiseLike<T>) => void) | undefined;
-    let reject: ((err: unknown) => void) | undefined;
+    let resolve: ((val: void | PromiseLike<void>) => void) | undefined;
 
-    this.queue = new Promise<void>((res, rej) => {
-      resolve = res as any;
-      reject = rej;
+    this.queue = new Promise<void>((res) => {
+      resolve = res;
     });
 
     try {
       await prev.catch(() => {});
       const result = await fn();
-      resolve!(result);
       return result;
     } catch (err) {
-      reject!(err);
       metrics.errors++;
       throw err;
+    } finally {
+      resolve!();
     }
   }
 }
