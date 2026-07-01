@@ -121,6 +121,16 @@ try {
   process.exit(1);
 }
 
+function formatUptime(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  if (seconds < 3600) {
+    return `${Math.floor(seconds / 60)}m`;
+  }
+  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+}
+
 class OpQueue {
   private queue = Promise.resolve();
 
@@ -166,7 +176,7 @@ server.registerTool(
       await search.search('test', { limit: 1 });
 
       const uptime = Math.floor((Date.now() - metrics.startTime) / 1000);
-      const uptimeStr = uptime < 60 ? `${uptime}s` : uptime < 3600 ? `${Math.floor(uptime / 60)}m` : `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`;
+      const uptimeStr = formatUptime(uptime);
 
       return {
         content: [{
