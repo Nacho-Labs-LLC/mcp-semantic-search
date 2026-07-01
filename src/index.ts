@@ -235,6 +235,7 @@ server.registerTool(
   async ({ query, limit, minSimilarity, kind, tags, since }) => {
     return opQueue.run(async () => {
       const startTime = Date.now();
+      const parsedSince = since ? Date.parse(since) : undefined;
 
       const results = await search.search(query, {
         limit,
@@ -242,7 +243,7 @@ server.registerTool(
         filter: (meta: any) => {
           if (kind && meta?.kind !== kind) return false;
           if (tags && (!meta?.tags || !tags.some((t) => meta.tags?.includes(t)))) return false;
-          if (since && meta?.timestamp && meta.timestamp < Date.parse(since)) return false;
+          if (parsedSince !== undefined && !isNaN(parsedSince) && meta?.timestamp && meta.timestamp < parsedSince) return false;
           return true;
         },
       });
