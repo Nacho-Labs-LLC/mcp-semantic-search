@@ -3,7 +3,7 @@
   "name": "io.github.nacho-labs-llc/mcp-semantic-search",
   "description": "Local semantic search for AI coding tools. Index decisions, patterns, and context — recall them by meaning, not keywords. Powered by nachos-embeddings (Transformers.js). No API keys, no cloud, no costs.",
   "title": "Semantic Search MCP Server",
-  "version": "0.1.0",
+  "version": "0.3.2",
   "repository": {
     "url": "https://github.com/nacho-labs-llc/mcp-semantic-search",
     "source": "github"
@@ -12,7 +12,7 @@
     {
       "registryType": "npm",
       "identifier": "@nacho-labs/mcp-semantic-search",
-      "version": "0.1.0",
+      "version": "0.3.2",
       "transport": {
         "type": "stdio"
       },
@@ -26,7 +26,7 @@
         },
         {
           "name": "MCP_SEMANTIC_SIMILARITY",
-          "description": "Minimum similarity threshold (0-1). Defaults to 0.6.",
+          "description": "Minimum similarity threshold (0-1). Defaults to 0.4.",
           "isRequired": false,
           "isSecret": false,
           "format": "string"
@@ -34,6 +34,48 @@
         {
           "name": "MCP_SEMANTIC_MODEL",
           "description": "Embedding model to use. Defaults to Xenova/all-MiniLM-L6-v2.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "MCP_SEMANTIC_CACHE_DIR",
+          "description": "Model cache directory. Defaults to .cache/transformers.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "MCP_SEMANTIC_PROVIDER",
+          "description": "Embedding provider: transformers or bedrock. Defaults to transformers.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "MCP_SEMANTIC_BEDROCK_REGION",
+          "description": "AWS region for the Bedrock provider. Defaults to us-east-1.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "MCP_SEMANTIC_BEDROCK_MODEL",
+          "description": "Bedrock embedding model ID. Defaults to amazon.titan-embed-text-v2:0.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "MCP_SEMANTIC_BEDROCK_PROFILE",
+          "description": "Optional AWS shared-credentials profile name for Bedrock.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "MCP_SEMANTIC_BEDROCK_DIMENSIONS",
+          "description": "Optional Bedrock embedding dimensions override. Defaults to 1024.",
           "isRequired": false,
           "isSecret": false,
           "format": "string"
