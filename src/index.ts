@@ -7,8 +7,15 @@ import { EnhancedSemanticSearch } from '@nacho-labs/nachos-embeddings';
 import type { EmbeddingProvider } from '@nacho-labs/nachos-embeddings';
 import { resolve } from 'node:path';
 
+const VERSION = '0.3.2';
 const MAX_LENGTH = 1_000_000;
 const MAX_ITEMS = 100;
+const metadataValueSchema = z.union([
+  z.string().max(MAX_LENGTH),
+  z.number(),
+  z.boolean(),
+  z.array(z.string().max(MAX_LENGTH)).max(MAX_ITEMS),
+]);
 
 function getConfig() {
   const args = process.argv.slice(2);
@@ -163,7 +170,7 @@ class OpQueue {
 const opQueue = new OpQueue();
 
 const server = new McpServer(
-  { name: 'mcp-semantic-search-enhanced', version: '0.2.0' },
+  { name: 'mcp-semantic-search-enhanced', version: VERSION },
   { capabilities: { logging: {} } }
 );
 
@@ -286,7 +293,7 @@ server.registerTool(
     inputSchema: z.object({
       id: z.string().describe('Unique ID (e.g., "auth-pattern", "adr-012")'),
       text: z.string().describe('Content to index'),
-      metadata: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional().describe('Optional metadata'),
+      metadata: z.record(z.string(), metadataValueSchema).optional().describe('Optional metadata'),
     }),
   },
   async ({ id, text, metadata }) => {
@@ -322,7 +329,7 @@ server.registerTool(
       documents: z.array(z.object({
         id: z.string().max(MAX_LENGTH),
         text: z.string().max(MAX_LENGTH),
-        metadata: z.record(z.union([z.string().max(MAX_LENGTH), z.number(), z.boolean(), z.array(z.string().max(MAX_LENGTH)).max(MAX_ITEMS)])).optional(),
+        metadata: z.record(z.string(), metadataValueSchema).optional(),
       })).max(MAX_ITEMS),
     }),
   },

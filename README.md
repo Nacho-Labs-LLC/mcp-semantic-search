@@ -36,12 +36,13 @@ Add to your MCP config (`.mcp.json`, `mcp.json`, or client-specific config):
 }
 ```
 
-That's it. Your AI tool now has six semantic memory tools.
+That's it. Your AI tool now has seven semantic memory tools.
 
 ## Tools
 
 | Tool | Description |
 | ---- | ----------- |
+| `semantic_health` | Check server health, metrics, and active configuration |
 | `semantic_search` | Search indexed documents by meaning |
 | `semantic_index` | Add a document to the index |
 | `semantic_index_batch` | Add multiple documents at once |
@@ -105,7 +106,7 @@ npx @nacho-labs/mcp-semantic-search \
 | Variable | Description | Default |
 | -------- | ----------- | ------- |
 | `MCP_SEMANTIC_STORE` | Path to persistence file | `.semantic-store.json` |
-| `MCP_SEMANTIC_SIMILARITY` | Min similarity threshold (0-1) | `0.6` |
+| `MCP_SEMANTIC_SIMILARITY` | Min similarity threshold (0-1) | `0.4` |
 | `MCP_SEMANTIC_MODEL` | Embedding model | `Xenova/all-MiniLM-L6-v2` |
 | `MCP_SEMANTIC_CACHE_DIR` | Model cache directory | `.cache/transformers` |
 
