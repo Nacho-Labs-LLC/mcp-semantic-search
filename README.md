@@ -40,15 +40,15 @@ That's it. Your AI tool now has seven semantic memory tools.
 
 ## Tools
 
-| Tool | Description |
-| ---- | ----------- |
-| `semantic_health` | Check server health, metrics, and active configuration |
-| `semantic_search` | Search indexed documents by meaning |
-| `semantic_index` | Add a document to the index |
-| `semantic_index_batch` | Add multiple documents at once |
-| `semantic_remove` | Remove a document by ID |
-| `semantic_stats` | Get index size, store location, and config |
-| `semantic_clear` | Remove all documents (requires confirmation) |
+| Tool                   | Description                                            |
+| ---------------------- | ------------------------------------------------------ |
+| `semantic_health`      | Check server health, metrics, and active configuration |
+| `semantic_search`      | Search indexed documents by meaning                    |
+| `semantic_index`       | Add a document to the index                            |
+| `semantic_index_batch` | Add multiple documents at once                         |
+| `semantic_remove`      | Remove a document by ID                                |
+| `semantic_stats`       | Get index size, store location, and config             |
+| `semantic_clear`       | Remove all documents (requires confirmation)           |
 
 ## What it does
 
@@ -67,10 +67,10 @@ Returns:         "We throttle API requests using sliding windows..."
 
 The embedding model understands meaning:
 
-| Query | Finds |
-| ----- | ----- |
-| "rate limiting" | "We throttle API requests using sliding windows" |
-| "how to deploy" | "Production runs via docker compose up with..." |
+| Query            | Finds                                             |
+| ---------------- | ------------------------------------------------- |
+| "rate limiting"  | "We throttle API requests using sliding windows"  |
+| "how to deploy"  | "Production runs via docker compose up with..."   |
 | "error handling" | "We use Result types instead of try/catch for..." |
 
 ## What to index
@@ -103,12 +103,12 @@ npx @nacho-labs/mcp-semantic-search \
 
 ### Environment variables
 
-| Variable | Description | Default |
-| -------- | ----------- | ------- |
-| `MCP_SEMANTIC_STORE` | Path to persistence file | `.semantic-store.json` |
-| `MCP_SEMANTIC_SIMILARITY` | Min similarity threshold (0-1) | `0.4` |
-| `MCP_SEMANTIC_MODEL` | Embedding model | `Xenova/all-MiniLM-L6-v2` |
-| `MCP_SEMANTIC_CACHE_DIR` | Model cache directory | `.cache/transformers` |
+| Variable                  | Description                    | Default                   |
+| ------------------------- | ------------------------------ | ------------------------- |
+| `MCP_SEMANTIC_STORE`      | Path to persistence file       | `.semantic-store.json`    |
+| `MCP_SEMANTIC_SIMILARITY` | Min similarity threshold (0-1) | `0.4`                     |
+| `MCP_SEMANTIC_MODEL`      | Embedding model                | `Xenova/all-MiniLM-L6-v2` |
+| `MCP_SEMANTIC_CACHE_DIR`  | Model cache directory          | `.cache/transformers`     |
 
 ### With environment variables in MCP config
 
@@ -130,12 +130,12 @@ npx @nacho-labs/mcp-semantic-search \
 
 ## Performance
 
-| Operation | Time |
-| --------- | ---- |
-| Server startup (model cached) | ~500ms |
-| Server startup (first run) | ~2-5s |
-| Index a document | ~10-50ms |
-| Search 1000 documents | ~5-10ms |
+| Operation                     | Time     |
+| ----------------------------- | -------- |
+| Server startup (model cached) | ~500ms   |
+| Server startup (first run)    | ~2-5s    |
+| Index a document              | ~10-50ms |
+| Search 1000 documents         | ~5-10ms  |
 
 **Memory:** ~100MB for model + ~1.5KB per document.
 
@@ -169,6 +169,27 @@ npm install
 npm run build
 npm start
 ```
+
+### Quality checks
+
+```bash
+npm run format:check
+npm run lint
+npm run typecheck
+npm test
+```
+
+`npm test` builds `dist/` and runs an SDK-backed MCP stdio smoke test. It starts
+the compiled server with `StdioClientTransport`, lists tools, calls
+`semantic_health`, then indexes and searches a real document. The test puts both
+its store and Transformers cache in a unique OS temporary directory and removes
+them afterward.
+
+The smoke test uses the real default Transformers.js provider rather than a fake
+embedding provider. A cold model start needs internet access to download the
+model (about 25 MB); because the test cleans its temporary cache, CI should allow
+network access and budget for that download on each isolated run. Timing depends
+on the network and model host cache.
 
 ## License
 
