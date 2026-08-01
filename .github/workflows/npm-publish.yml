@@ -27,7 +27,7 @@ jobs:
       - name: Cache Transformers model artifacts
         uses: actions/cache@v4
         with:
-          path: ~/.cache/mcp-semantic-search/transformers
+          path: ${{ runner.home }}/.cache/mcp-semantic-search/transformers
           key: transformers-${{ runner.os }}-all-MiniLM-L6-v2
 
       - name: Verify release tag matches package version
@@ -43,6 +43,6 @@ jobs:
       - name: Run network MCP integration smoke
         run: npm run test:integration
         env:
-          MCP_SEMANTIC_TEST_CACHE_DIR: ~/.cache/mcp-semantic-search/transformers
+          MCP_SEMANTIC_TEST_CACHE_DIR: ${{ runner.home }}/.cache/mcp-semantic-search/transformers
       - run: npm pack --dry-run
       - run: npm publish --provenance --access public

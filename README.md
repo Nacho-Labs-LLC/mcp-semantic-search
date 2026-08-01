@@ -177,19 +177,21 @@ npm run format:check
 npm run lint
 npm run typecheck
 npm test
+npm run test:integration
 ```
 
-`npm test` builds `dist/` and runs an SDK-backed MCP stdio smoke test. It starts
-the compiled server with `StdioClientTransport`, lists tools, calls
-`semantic_health`, then indexes and searches a real document. The test puts both
-its store and Transformers cache in a unique OS temporary directory and removes
-them afterward.
+`npm test` runs deterministic unit/contract tests only; it does not build the
+server or download a model.
 
-The smoke test uses the real default Transformers.js provider rather than a fake
-embedding provider. A cold model start needs internet access to download the
-model (about 25 MB); because the test cleans its temporary cache, CI should allow
-network access and budget for that download on each isolated run. Timing depends
-on the network and model host cache.
+`npm run test:integration` runs the network/model-backed compiled MCP stdio
+smoke. It builds `dist/`, starts the server with `StdioClientTransport`, lists
+tools, calls `semantic_health`, then indexes and searches a real document.
+
+The integration smoke uses the real default Transformers.js provider. On its
+first run, it needs internet access to download the model (about 25 MB); later
+runs can reuse the configured model cache. The release CI workflow caches that
+directory between runs and passes the same explicit cache path to the smoke, but
+network availability is still required when a cache miss occurs.
 
 ## License
 

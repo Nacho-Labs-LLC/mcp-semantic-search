@@ -21,14 +21,27 @@ test('the default test gate is deterministic and integration is explicit', async
 
 test('the release workflow verifies all quality gates and cached integration coverage before publishing', async () => {
   const workflow = await readRepositoryFile('.github/workflows/npm-publish.yml');
+  const expectedTransformerCachePath = '${{ runner.home }}/.cache/mcp-semantic-search/transformers';
 
   for (const command of ['format:check', 'lint', 'typecheck', 'build', 'test', 'test:integration']) {
     assert.match(workflow, new RegExp(`npm run ${command}`));
   }
   assert.match(workflow, /actions\/cache@v4/);
-  assert.match(workflow, /\.cache\/mcp-semantic-search\/transformers/);
-  assert.match(workflow, /MCP_SEMANTIC_TEST_CACHE_DIR/);
+  assert.match(workflow, new RegExp(`path: ${expectedTransformerCachePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(
+    workflow,
+    new RegExp(`MCP_SEMANTIC_TEST_CACHE_DIR: ${expectedTransformerCachePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+  );
   assert.match(workflow, /npm publish --provenance --access public/);
+});
+
+test('the README separates deterministic unit contracts from the network-backed MCP smoke', async () => {
+  const readme = await readRepositoryFile('README.md');
+
+  assert.match(readme, /`npm test`[\s\S]*?deterministic unit\/contract tests only/i);
+  assert.match(readme, /`npm run test:integration`[\s\S]*?network\/model-backed compiled MCP stdio\s+smoke/i);
+  assert.match(readme, /first\s+run[\s\S]*?download/i);
+  assert.match(readme, /CI[\s\S]*?cache/i);
 });
 
 test('format checking includes checked-in JSON configuration', async () => {
