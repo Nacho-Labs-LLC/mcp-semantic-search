@@ -35,6 +35,16 @@ test('the release workflow verifies all quality gates and cached integration cov
   assert.match(workflow, /npm publish --provenance --access public/);
 });
 
+test('the published Node support contract matches the README and release workflow', async () => {
+  const packageJson = JSON.parse(await readRepositoryFile('package.json'));
+  const readme = await readRepositoryFile('README.md');
+  const workflow = await readRepositoryFile('.github/workflows/npm-publish.yml');
+
+  assert.equal(packageJson.engines.node, '>=20.0.0');
+  assert.match(readme, /\*\*Node\.js 20\+\*\*/);
+  assert.match(workflow, /node-version:\s*24/);
+});
+
 test('the README separates deterministic unit contracts from the network-backed MCP smoke', async () => {
   const readme = await readRepositoryFile('README.md');
 
