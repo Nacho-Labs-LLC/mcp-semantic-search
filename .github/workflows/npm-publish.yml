@@ -24,12 +24,25 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: npm
 
+      - name: Cache Transformers model artifacts
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mcp-semantic-search/transformers
+          key: transformers-${{ runner.os }}-all-MiniLM-L6-v2
+
       - name: Verify release tag matches package version
         run: |
           test "${{ github.event.release.tag_name }}" = "v$(node -p \"require('./package.json').version\")"
 
       - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
+      - run: npm run test
+      - name: Run network MCP integration smoke
+        run: npm run test:integration
+        env:
+          MCP_SEMANTIC_TEST_CACHE_DIR: ~/.cache/mcp-semantic-search/transformers
       - run: npm pack --dry-run
       - run: npm publish --provenance --access public

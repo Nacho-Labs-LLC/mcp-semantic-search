@@ -8,13 +8,22 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
+import {
+  captureBoundedStderr,
+  formatErrorWithDiagnostics,
+  retryIntegration,
+  runWithCleanup,
+} from './integration-support.mjs';
+
 const repositoryRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const serverEntry = join(repositoryRoot, 'dist', 'index.js');
 
-test('serves semantic search over the MCP stdio transport', { timeout: 180_000 }, async () => {
+async function runSmokeAttempt() {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), 'mcp-semantic-search-'));
   const storePath = join(temporaryDirectory, 'store.json');
-  const cacheDirectory = join(temporaryDirectory, 'transformers-cache');
+  // Local runs use an isolated cache that is removed with the test. Release CI
+  // supplies a cache outside the checkout so model downloads can be reused.
+  const cacheDirectory = process.env.MCP_SEMANTIC_TEST_CACHE_DIR ?? join(temporaryDirectory, 'transformers-cache');
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [serverEntry],
@@ -27,41 +36,60 @@ test('serves semantic search over the MCP stdio transport', { timeout: 180_000 }
     },
     stderr: 'pipe',
   });
-  const client = new Client({ name: 'mcp-semantic-search-smoke-test', version: '1.0.0' });
+  const stderr = captureBoundedStderr(transport.stderr);
+  const client = new Client({ name: 'mcp-semantic-search-integration-test', version: '1.0.0' });
+  let connected = false;
 
-  try {
-    await client.connect(transport);
+  return runWithCleanup(
+    async () => {
+      try {
+        await client.connect(transport);
+        connected = true;
 
-    const { tools } = await client.listTools();
-    assert.deepEqual(
-      ['semantic_health', 'semantic_index', 'semantic_search'].every((name) =>
-        tools.some((tool) => tool.name === name),
-      ),
-      true,
-      'the server exposes the health, index, and search tools',
-    );
+        const { tools } = await client.listTools();
+        assert.deepEqual(
+          ['semantic_health', 'semantic_index', 'semantic_search'].every((name) =>
+            tools.some((tool) => tool.name === name),
+          ),
+          true,
+          'the server exposes the health, index, and search tools',
+        );
 
-    const health = await client.callTool({ name: 'semantic_health', arguments: {} });
-    assert.match(health.content[0]?.text ?? '', /Healthy/);
+        const health = await client.callTool({ name: 'semantic_health', arguments: {} });
+        assert.match(health.content[0]?.text ?? '', /Healthy/);
 
-    const indexed = await client.callTool({
-      name: 'semantic_index',
-      arguments: {
-        id: 'stdio-smoke-document',
-        text: 'Semantic search smoke coverage indexes and retrieves this document.',
-        metadata: { kind: 'test', tags: ['smoke'] },
-      },
-    });
-    assert.match(indexed.content[0]?.text ?? '', /Indexed/);
+        const indexed = await client.callTool({
+          name: 'semantic_index',
+          arguments: {
+            id: 'stdio-smoke-document',
+            text: 'Semantic search smoke coverage indexes and retrieves this document.',
+            metadata: { kind: 'test', tags: ['smoke'] },
+          },
+        });
+        assert.match(indexed.content[0]?.text ?? '', /Indexed/);
 
-    const searched = await client.callTool({
-      name: 'semantic_search',
-      arguments: { query: 'retrieves smoke coverage document', limit: 1, minSimilarity: 0 },
-    });
-    assert.match(searched.content[0]?.text ?? '', /stdio-smoke-document|Semantic search smoke coverage/);
-  } finally {
-    await client.close();
-    await transport.close();
-    await rm(temporaryDirectory, { force: true, recursive: true });
-  }
+        const searched = await client.callTool({
+          name: 'semantic_search',
+          arguments: { query: 'retrieves smoke coverage document', limit: 1, minSimilarity: 0 },
+        });
+        assert.match(searched.content[0]?.text ?? '', /stdio-smoke-document|Semantic search smoke coverage/);
+      } catch (error) {
+        throw formatErrorWithDiagnostics(error, stderr.read());
+      }
+    },
+    async () => {
+      try {
+        if (connected) {
+          await client.close();
+        }
+      } finally {
+        stderr.dispose();
+        await rm(temporaryDirectory, { force: true, maxRetries: 3, recursive: true, retryDelay: 200 });
+      }
+    },
+  );
+}
+
+test('serves semantic search over the compiled MCP stdio transport', { timeout: 300_000 }, async () => {
+  await retryIntegration(runSmokeAttempt, { attempts: 2, delayMs: 2_000 });
 });

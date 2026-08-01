@@ -1,5 +1,2 @@
-.github/
 dist/
 node_modules/
-server.json
-tsconfig.json
