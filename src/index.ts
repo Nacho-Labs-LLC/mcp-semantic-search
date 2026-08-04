@@ -118,7 +118,12 @@ async function initWithRetry(maxRetries = 3): Promise<void> {
       return;
     } catch (err) {
       if (attempt === maxRetries) {
-        console.error('[Init] Failed after', maxRetries, 'attempts. Internet required on first run (~25MB download).', err);
+        console.error(
+          '[Init] Failed after',
+          maxRetries,
+          'attempts. Internet required on first run (~25MB download).',
+          err,
+        );
         throw err;
       }
       console.error(`[Init] Retry in 2s...`, err);
@@ -171,7 +176,7 @@ const opQueue = new OpQueue();
 
 const server = new McpServer(
   { name: 'mcp-semantic-search-enhanced', version: VERSION },
-  { capabilities: { logging: {} } }
+  { capabilities: { logging: {} } },
 );
 
 server.registerTool(
@@ -189,40 +194,44 @@ server.registerTool(
       const uptimeStr = formatUptime(uptime);
 
       return {
-        content: [{
-          type: 'text' as const,
-          text: [
-            '✅ Healthy',
-            '',
-            '📊 Metrics:',
-            `   Documents: ${search.size()}`,
-            `   Searches: ${metrics.searches}`,
-            `   Added: ${metrics.documentsAdded}`,
-            `   Removed: ${metrics.documentsRemoved}`,
-            `   Errors: ${metrics.errors}`,
-            `   Uptime: ${uptimeStr}`,
-            '',
-            '⚙️ Config:',
-            `   Provider: ${config.provider}`,
-            `   Model: ${config.provider === 'bedrock' ? config.bedrockModel : config.model}`,
-            `   ${config.provider === 'bedrock' ? `Region: ${config.bedrockRegion}` : `Cache: ${config.cacheDir}`}`,
-            `   Store: ${config.storePath}`,
-            `   Min similarity: ${config.minSimilarity}`,
-            `   Auto-chunk: ${config.autoChunk}`,
-            `   Dedup: exact=${config.deduplicateExact}, fuzzy=${config.deduplicateSimilarity}`,
-            `   Temporal boost: ${config.temporalBoost}`,
-          ].join('\n'),
-        }],
+        content: [
+          {
+            type: 'text' as const,
+            text: [
+              '✅ Healthy',
+              '',
+              '📊 Metrics:',
+              `   Documents: ${search.size()}`,
+              `   Searches: ${metrics.searches}`,
+              `   Added: ${metrics.documentsAdded}`,
+              `   Removed: ${metrics.documentsRemoved}`,
+              `   Errors: ${metrics.errors}`,
+              `   Uptime: ${uptimeStr}`,
+              '',
+              '⚙️ Config:',
+              `   Provider: ${config.provider}`,
+              `   Model: ${config.provider === 'bedrock' ? config.bedrockModel : config.model}`,
+              `   ${config.provider === 'bedrock' ? `Region: ${config.bedrockRegion}` : `Cache: ${config.cacheDir}`}`,
+              `   Store: ${config.storePath}`,
+              `   Min similarity: ${config.minSimilarity}`,
+              `   Auto-chunk: ${config.autoChunk}`,
+              `   Dedup: exact=${config.deduplicateExact}, fuzzy=${config.deduplicateSimilarity}`,
+              `   Temporal boost: ${config.temporalBoost}`,
+            ].join('\n'),
+          },
+        ],
       };
     } catch (err) {
       return {
-        content: [{
-          type: 'text' as const,
-          text: `❌ Unhealthy: ${err instanceof Error ? err.message : String(err)}`,
-        }],
+        content: [
+          {
+            type: 'text' as const,
+            text: `❌ Unhealthy: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
       };
     }
-  }
+  },
 );
 
 server.registerTool(
@@ -250,7 +259,8 @@ server.registerTool(
         filter: (meta: any) => {
           if (kind && meta?.kind !== kind) return false;
           if (tags && (!meta?.tags || !tags.some((t) => meta.tags?.includes(t)))) return false;
-          if (parsedSince !== undefined && !isNaN(parsedSince) && meta?.timestamp && meta.timestamp < parsedSince) return false;
+          if (parsedSince !== undefined && !isNaN(parsedSince) && meta?.timestamp && meta.timestamp < parsedSince)
+            return false;
           return true;
         },
       });
@@ -260,29 +270,34 @@ server.registerTool(
 
       if (results.length === 0) {
         return {
-          content: [{
-            type: 'text' as const,
-            text: `🔍 No results for "${query}" (${elapsed}ms)`,
-          }],
+          content: [
+            {
+              type: 'text' as const,
+              text: `🔍 No results for "${query}" (${elapsed}ms)`,
+            },
+          ],
         };
       }
 
       const formatted = results
         .map((r, i) => {
           const preview = r.text.substring(0, 200) + (r.text.length > 200 ? '...' : '');
-          const metaStr = r.metadata && Object.keys(r.metadata).length > 0 ? `\n   📎 ${JSON.stringify(r.metadata)}` : '';
+          const metaStr =
+            r.metadata && Object.keys(r.metadata).length > 0 ? `\n   📎 ${JSON.stringify(r.metadata)}` : '';
           return `${i + 1}. [${(r.similarity * 100).toFixed(0)}%] ${preview}${metaStr}`;
         })
         .join('\n\n');
 
       return {
-        content: [{
-          type: 'text' as const,
-          text: `🔍 Found ${results.length} in ${elapsed}ms:\n\n${formatted}`,
-        }],
+        content: [
+          {
+            type: 'text' as const,
+            text: `🔍 Found ${results.length} in ${elapsed}ms:\n\n${formatted}`,
+          },
+        ],
       };
     });
-  }
+  },
 );
 
 server.registerTool(
@@ -306,18 +321,20 @@ server.registerTool(
       const elapsed = Date.now() - startTime;
 
       return {
-        content: [{
-          type: 'text' as const,
-          text: [
-            `✅ Indexed "${id}" (${elapsed}ms)`,
-            `📊 ${search.size()} documents total`,
-            `💾 Saved to ${config.storePath}`,
-            `🔍 Test: semantic_search("${id}")`,
-          ].join('\n'),
-        }],
+        content: [
+          {
+            type: 'text' as const,
+            text: [
+              `✅ Indexed "${id}" (${elapsed}ms)`,
+              `📊 ${search.size()} documents total`,
+              `💾 Saved to ${config.storePath}`,
+              `🔍 Test: semantic_search("${id}")`,
+            ].join('\n'),
+          },
+        ],
       };
     });
-  }
+  },
 );
 
 server.registerTool(
@@ -326,11 +343,15 @@ server.registerTool(
     title: 'Batch Index',
     description: 'Add multiple documents at once',
     inputSchema: z.object({
-      documents: z.array(z.object({
-        id: z.string().max(MAX_LENGTH),
-        text: z.string().max(MAX_LENGTH),
-        metadata: z.record(z.string(), metadataValueSchema).optional(),
-      })).max(MAX_ITEMS),
+      documents: z
+        .array(
+          z.object({
+            id: z.string().max(MAX_LENGTH),
+            text: z.string().max(MAX_LENGTH),
+            metadata: z.record(z.string(), metadataValueSchema).optional(),
+          }),
+        )
+        .max(MAX_ITEMS),
     }),
   },
   async ({ documents }) => {
@@ -343,17 +364,19 @@ server.registerTool(
       const elapsed = Date.now() - startTime;
 
       return {
-        content: [{
-          type: 'text' as const,
-          text: [
-            `✅ Indexed ${documents.length} documents (${elapsed}ms)`,
-            `   ${Math.round(documents.length / (elapsed / 1000))}/sec`,
-            `📊 ${search.size()} documents total`,
-          ].join('\n'),
-        }],
+        content: [
+          {
+            type: 'text' as const,
+            text: [
+              `✅ Indexed ${documents.length} documents (${elapsed}ms)`,
+              `   ${Math.round(documents.length / (elapsed / 1000))}/sec`,
+              `📊 ${search.size()} documents total`,
+            ].join('\n'),
+          },
+        ],
       };
     });
-  }
+  },
 );
 
 server.registerTool(
@@ -374,15 +397,15 @@ server.registerTool(
       }
 
       return {
-        content: [{
-          type: 'text' as const,
-          text: removed
-            ? `✅ Removed "${id}"\n📊 ${search.size()} remaining`
-            : `⚠️ "${id}" not found`,
-        }],
+        content: [
+          {
+            type: 'text' as const,
+            text: removed ? `✅ Removed "${id}"\n📊 ${search.size()} remaining` : `⚠️ "${id}" not found`,
+          },
+        ],
       };
     });
-  }
+  },
 );
 
 server.registerTool(
@@ -393,31 +416,33 @@ server.registerTool(
     inputSchema: z.object({}),
   },
   async () => ({
-    content: [{
-      type: 'text' as const,
-      text: [
-        '📊 Index Stats',
-        '',
-        `Documents: ${search.size()}`,
-        `Provider: ${config.provider}`,
-        `Model: ${config.provider === 'bedrock' ? config.bedrockModel : config.model}`,
-        `Store: ${config.storePath}`,
-        `Min similarity: ${config.minSimilarity}`,
-        '',
-        'Features:',
-        `   Auto-chunk: ${config.autoChunk}`,
-        `   Dedup (exact): ${config.deduplicateExact}`,
-        `   Dedup (fuzzy): ${config.deduplicateSimilarity > 0 ? config.deduplicateSimilarity : 'off'}`,
-        `   Temporal boost: ${config.temporalBoost}`,
-        '',
-        'Usage:',
-        `   Searches: ${metrics.searches}`,
-        `   Added: ${metrics.documentsAdded}`,
-        `   Removed: ${metrics.documentsRemoved}`,
-        `   Errors: ${metrics.errors}`,
-      ].join('\n'),
-    }],
-  })
+    content: [
+      {
+        type: 'text' as const,
+        text: [
+          '📊 Index Stats',
+          '',
+          `Documents: ${search.size()}`,
+          `Provider: ${config.provider}`,
+          `Model: ${config.provider === 'bedrock' ? config.bedrockModel : config.model}`,
+          `Store: ${config.storePath}`,
+          `Min similarity: ${config.minSimilarity}`,
+          '',
+          'Features:',
+          `   Auto-chunk: ${config.autoChunk}`,
+          `   Dedup (exact): ${config.deduplicateExact}`,
+          `   Dedup (fuzzy): ${config.deduplicateSimilarity > 0 ? config.deduplicateSimilarity : 'off'}`,
+          `   Temporal boost: ${config.temporalBoost}`,
+          '',
+          'Usage:',
+          `   Searches: ${metrics.searches}`,
+          `   Added: ${metrics.documentsAdded}`,
+          `   Removed: ${metrics.documentsRemoved}`,
+          `   Errors: ${metrics.errors}`,
+        ].join('\n'),
+      },
+    ],
+  }),
 );
 
 server.registerTool(
@@ -432,10 +457,12 @@ server.registerTool(
   async ({ confirm }) => {
     if (!confirm) {
       return {
-        content: [{
-          type: 'text' as const,
-          text: '⚠️ Cancelled. Set confirm: true to proceed',
-        }],
+        content: [
+          {
+            type: 'text' as const,
+            text: '⚠️ Cancelled. Set confirm: true to proceed',
+          },
+        ],
       };
     }
 
@@ -444,13 +471,15 @@ server.registerTool(
       await search.clear();
 
       return {
-        content: [{
-          type: 'text' as const,
-          text: `✅ Cleared ${count} documents\n💾 Saved to ${config.storePath}`,
-        }],
+        content: [
+          {
+            type: 'text' as const,
+            text: `✅ Cleared ${count} documents\n💾 Saved to ${config.storePath}`,
+          },
+        ],
       };
     });
-  }
+  },
 );
 
 const transport = new StdioServerTransport();
