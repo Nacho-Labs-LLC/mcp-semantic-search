@@ -33,6 +33,11 @@ test('the release workflow verifies all quality gates and cached integration cov
     new RegExp(`MCP_SEMANTIC_TEST_CACHE_DIR: ${expectedTransformerCachePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
   );
   assert.match(workflow, /npm publish --provenance --access public/);
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /release_tag:/);
+  assert.match(workflow, /ref: \$\{\{ env\.RELEASE_TAG \}\}/);
+  assert.match(workflow, /actual_tag="v\$\(node -p "require\('\.\/package\.json'\)\.version"\)"/);
+  assert.match(workflow, /test "\$RELEASE_TAG" = "\$actual_tag"/);
 });
 
 test('the published Node support contract matches the README and release workflow', async () => {
