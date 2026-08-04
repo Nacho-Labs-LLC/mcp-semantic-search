@@ -18,7 +18,7 @@ import {
 const repositoryRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const serverEntry = join(repositoryRoot, 'dist', 'index.js');
 
-async function runSmokeAttempt() {
+async function createSmokeServer() {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), 'mcp-semantic-search-'));
   const storePath = join(temporaryDirectory, 'store.json');
   // Local runs use an isolated cache that is removed with the test. Release CI
@@ -36,57 +36,84 @@ async function runSmokeAttempt() {
     },
     stderr: 'pipe',
   });
+
+  return { temporaryDirectory, transport };
+}
+
+async function assertToolsAreAvailable(client) {
+  const { tools } = await client.listTools();
+  assert.deepEqual(
+    ['semantic_health', 'semantic_index', 'semantic_search'].every((name) => tools.some((tool) => tool.name === name)),
+    true,
+    'the server exposes the health, index, and search tools',
+  );
+}
+
+async function assertHealthIsAvailable(client) {
+  const health = await client.callTool({ name: 'semantic_health', arguments: {} });
+  assert.match(health.content[0]?.text ?? '', /Healthy/);
+}
+
+async function indexSmokeDocument(client) {
+  const indexed = await client.callTool({
+    name: 'semantic_index',
+    arguments: {
+      id: 'stdio-smoke-document',
+      text: 'Semantic search smoke coverage indexes and retrieves this document.',
+      metadata: { kind: 'test', tags: ['smoke'], timestamp: Date.now() },
+    },
+  });
+  assert.match(indexed.content[0]?.text ?? '', /Indexed/);
+}
+
+async function assertFilteredSearchFindsDocument(client) {
+  const searched = await client.callTool({
+    name: 'semantic_search',
+    arguments: {
+      query: 'retrieves smoke coverage document',
+      kind: 'test',
+      tags: ['smoke'],
+      since: '1970-01-01T00:00:00.000Z',
+      limit: 1,
+      minSimilarity: 0,
+    },
+  });
+  assert.match(searched.content[0]?.text ?? '', /stdio-smoke-document|Semantic search smoke coverage/);
+}
+
+async function exerciseSmokeServer(client, transport, stderr, state) {
+  try {
+    await client.connect(transport);
+    state.connected = true;
+    await assertToolsAreAvailable(client);
+    await assertHealthIsAvailable(client);
+    await indexSmokeDocument(client);
+    await assertFilteredSearchFindsDocument(client);
+  } catch (error) {
+    throw formatErrorWithDiagnostics(error, stderr.read());
+  }
+}
+
+async function cleanupSmokeServer(client, stderr, temporaryDirectory, state) {
+  try {
+    if (state.connected) {
+      await client.close();
+    }
+  } finally {
+    stderr.dispose();
+    await rm(temporaryDirectory, { force: true, maxRetries: 3, recursive: true, retryDelay: 200 });
+  }
+}
+
+async function runSmokeAttempt() {
+  const { temporaryDirectory, transport } = await createSmokeServer();
   const stderr = captureBoundedStderr(transport.stderr);
   const client = new Client({ name: 'mcp-semantic-search-integration-test', version: '1.0.0' });
-  let connected = false;
+  const state = { connected: false };
 
   return runWithCleanup(
-    async () => {
-      try {
-        await client.connect(transport);
-        connected = true;
-
-        const { tools } = await client.listTools();
-        assert.deepEqual(
-          ['semantic_health', 'semantic_index', 'semantic_search'].every((name) =>
-            tools.some((tool) => tool.name === name),
-          ),
-          true,
-          'the server exposes the health, index, and search tools',
-        );
-
-        const health = await client.callTool({ name: 'semantic_health', arguments: {} });
-        assert.match(health.content[0]?.text ?? '', /Healthy/);
-
-        const indexed = await client.callTool({
-          name: 'semantic_index',
-          arguments: {
-            id: 'stdio-smoke-document',
-            text: 'Semantic search smoke coverage indexes and retrieves this document.',
-            metadata: { kind: 'test', tags: ['smoke'] },
-          },
-        });
-        assert.match(indexed.content[0]?.text ?? '', /Indexed/);
-
-        const searched = await client.callTool({
-          name: 'semantic_search',
-          arguments: { query: 'retrieves smoke coverage document', limit: 1, minSimilarity: 0 },
-        });
-        assert.match(searched.content[0]?.text ?? '', /stdio-smoke-document|Semantic search smoke coverage/);
-      } catch (error) {
-        throw formatErrorWithDiagnostics(error, stderr.read());
-      }
-    },
-    async () => {
-      try {
-        if (connected) {
-          await client.close();
-        }
-      } finally {
-        stderr.dispose();
-        await rm(temporaryDirectory, { force: true, maxRetries: 3, recursive: true, retryDelay: 200 });
-      }
-    },
+    () => exerciseSmokeServer(client, transport, stderr, state),
+    () => cleanupSmokeServer(client, stderr, temporaryDirectory, state),
   );
 }
 

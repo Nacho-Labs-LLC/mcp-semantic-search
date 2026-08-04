@@ -1,0 +1,5 @@
+{
+  // These packages are referenced by runtime/configuration strings that static
+  // import analysis cannot resolve. They remain declared for those paths.
+  "ignoreDependencies": ["@aws-sdk/client-bedrock-runtime", "@babel/preset-typescript"],
+}

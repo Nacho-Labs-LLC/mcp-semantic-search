@@ -9,7 +9,7 @@ no API keys, no cloud, no costs.
 
 ## Prerequisites
 
-- **Node.js 20+**
+- **Node.js 20.9+**
 - **Internet on first run** to download the embedding model (~25MB, cached permanently)
 
 ## Quick start
