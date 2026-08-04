@@ -105,29 +105,32 @@ const search = new EnhancedSemanticSearch({
   verbose: config.verbose,
 });
 
+async function initializeSearch(attempt: number, maxRetries: number): Promise<void> {
+  if (config.verbose) {
+    console.error(`[Init] Attempt ${attempt}/${maxRetries}`);
+  }
+  await search.init();
+  if (config.verbose) {
+    console.error(`[Init] Loaded ${search.size()} documents`);
+  }
+}
+
+async function handleInitializationFailure(attempt: number, maxRetries: number, err: unknown): Promise<void> {
+  if (attempt === maxRetries) {
+    console.error('[Init] Failed after', maxRetries, 'attempts. Internet required on first run (~25MB download).', err);
+    throw err;
+  }
+  console.error(`[Init] Retry in 2s...`, err);
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+}
+
 async function initWithRetry(maxRetries = 3): Promise<void> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      if (config.verbose) {
-        console.error(`[Init] Attempt ${attempt}/${maxRetries}`);
-      }
-      await search.init();
-      if (config.verbose) {
-        console.error(`[Init] Loaded ${search.size()} documents`);
-      }
+      await initializeSearch(attempt, maxRetries);
       return;
     } catch (err) {
-      if (attempt === maxRetries) {
-        console.error(
-          '[Init] Failed after',
-          maxRetries,
-          'attempts. Internet required on first run (~25MB download).',
-          err,
-        );
-        throw err;
-      }
-      console.error(`[Init] Retry in 2s...`, err);
-      await new Promise((r) => setTimeout(r, 2000));
+      await handleInitializationFailure(attempt, maxRetries, err);
     }
   }
 }
@@ -146,6 +149,35 @@ function formatUptime(seconds: number): string {
     return `${Math.floor(seconds / 60)}m`;
   }
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+}
+
+function matchesKind(meta: any, kind: string | undefined): boolean {
+  return !kind || meta?.kind === kind;
+}
+
+function matchesTags(meta: any, tags: string[] | undefined): boolean {
+  return !tags || Boolean(meta?.tags && tags.some((tag) => meta.tags?.includes(tag)));
+}
+
+function hasValidSince(parsedSince: number | undefined): parsedSince is number {
+  return parsedSince !== undefined && !isNaN(parsedSince);
+}
+
+function isBeforeSince(meta: any, parsedSince: number): boolean {
+  return Boolean(meta?.timestamp && meta.timestamp < parsedSince);
+}
+
+function matchesSince(meta: any, parsedSince: number | undefined): boolean {
+  return !hasValidSince(parsedSince) || !isBeforeSince(meta, parsedSince);
+}
+
+function matchesMetadata(
+  meta: any,
+  kind: string | undefined,
+  tags: string[] | undefined,
+  parsedSince: number | undefined,
+) {
+  return matchesKind(meta, kind) && matchesTags(meta, tags) && matchesSince(meta, parsedSince);
 }
 
 class OpQueue {
@@ -179,6 +211,58 @@ const server = new McpServer(
   { capabilities: { logging: {} } },
 );
 
+function buildHealthResponse() {
+  const uptime = Math.floor((Date.now() - metrics.startTime) / 1000);
+  const model = config.provider === 'bedrock' ? config.bedrockModel : config.model;
+  const providerSetting =
+    config.provider === 'bedrock' ? `Region: ${config.bedrockRegion}` : `Cache: ${config.cacheDir}`;
+
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: [
+          '✅ Healthy',
+          '',
+          '📊 Metrics:',
+          `   Documents: ${search.size()}`,
+          `   Searches: ${metrics.searches}`,
+          `   Added: ${metrics.documentsAdded}`,
+          `   Removed: ${metrics.documentsRemoved}`,
+          `   Errors: ${metrics.errors}`,
+          `   Uptime: ${formatUptime(uptime)}`,
+          '',
+          '⚙️ Config:',
+          `   Provider: ${config.provider}`,
+          `   Model: ${model}`,
+          `   ${providerSetting}`,
+          `   Store: ${config.storePath}`,
+          `   Min similarity: ${config.minSimilarity}`,
+          `   Auto-chunk: ${config.autoChunk}`,
+          `   Dedup: exact=${config.deduplicateExact}, fuzzy=${config.deduplicateSimilarity}`,
+          `   Temporal boost: ${config.temporalBoost}`,
+        ].join('\n'),
+      },
+    ],
+  };
+}
+
+async function getHealthResponse() {
+  try {
+    await search.search('test', { limit: 1 });
+    return buildHealthResponse();
+  } catch (err) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `❌ Unhealthy: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      ],
+    };
+  }
+}
+
 server.registerTool(
   'semantic_health',
   {
@@ -186,52 +270,7 @@ server.registerTool(
     description: 'Server status, metrics, and configuration',
     inputSchema: z.object({}),
   },
-  async () => {
-    try {
-      await search.search('test', { limit: 1 });
-
-      const uptime = Math.floor((Date.now() - metrics.startTime) / 1000);
-      const uptimeStr = formatUptime(uptime);
-
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: [
-              '✅ Healthy',
-              '',
-              '📊 Metrics:',
-              `   Documents: ${search.size()}`,
-              `   Searches: ${metrics.searches}`,
-              `   Added: ${metrics.documentsAdded}`,
-              `   Removed: ${metrics.documentsRemoved}`,
-              `   Errors: ${metrics.errors}`,
-              `   Uptime: ${uptimeStr}`,
-              '',
-              '⚙️ Config:',
-              `   Provider: ${config.provider}`,
-              `   Model: ${config.provider === 'bedrock' ? config.bedrockModel : config.model}`,
-              `   ${config.provider === 'bedrock' ? `Region: ${config.bedrockRegion}` : `Cache: ${config.cacheDir}`}`,
-              `   Store: ${config.storePath}`,
-              `   Min similarity: ${config.minSimilarity}`,
-              `   Auto-chunk: ${config.autoChunk}`,
-              `   Dedup: exact=${config.deduplicateExact}, fuzzy=${config.deduplicateSimilarity}`,
-              `   Temporal boost: ${config.temporalBoost}`,
-            ].join('\n'),
-          },
-        ],
-      };
-    } catch (err) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: `❌ Unhealthy: ${err instanceof Error ? err.message : String(err)}`,
-          },
-        ],
-      };
-    }
-  },
+  getHealthResponse,
 );
 
 server.registerTool(
@@ -256,13 +295,7 @@ server.registerTool(
       const results = await search.search(query, {
         limit,
         ...(minSimilarity !== undefined && { minSimilarity }),
-        filter: (meta: any) => {
-          if (kind && meta?.kind !== kind) return false;
-          if (tags && (!meta?.tags || !tags.some((t) => meta.tags?.includes(t)))) return false;
-          if (parsedSince !== undefined && !isNaN(parsedSince) && meta?.timestamp && meta.timestamp < parsedSince)
-            return false;
-          return true;
-        },
+        filter: (meta: any) => matchesMetadata(meta, kind, tags, parsedSince),
       });
 
       metrics.searches++;

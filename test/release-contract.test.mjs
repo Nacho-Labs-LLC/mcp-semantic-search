@@ -37,11 +37,13 @@ test('the release workflow verifies all quality gates and cached integration cov
 
 test('the published Node support contract matches the README and release workflow', async () => {
   const packageJson = JSON.parse(await readRepositoryFile('package.json'));
+  const packageLock = JSON.parse(await readRepositoryFile('package-lock.json'));
   const readme = await readRepositoryFile('README.md');
   const workflow = await readRepositoryFile('.github/workflows/npm-publish.yml');
 
-  assert.equal(packageJson.engines.node, '>=20.0.0');
-  assert.match(readme, /\*\*Node\.js 20\+\*\*/);
+  assert.equal(packageJson.engines.node, '>=20.9.0');
+  assert.equal(packageLock.packages[''].engines.node, packageJson.engines.node);
+  assert.match(readme, /\*\*Node\.js 20\.9\+\*\*/);
   assert.match(workflow, /node-version:\s*24/);
 });
 

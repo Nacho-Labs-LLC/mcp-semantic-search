@@ -23,30 +23,29 @@ export function formatErrorWithDiagnostics(error, stderr) {
   return new Error(`${message}\n\nServer stderr (bounded):\n${diagnostics}`, { cause: error });
 }
 
+async function captureError(operation) {
+  try {
+    return { result: await operation() };
+  } catch (error) {
+    return { error };
+  }
+}
+
+function throwOperationError(operationError, cleanupError) {
+  if (cleanupError) {
+    operationError.message += `\n\nCleanup failed: ${
+      cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+    }`;
+  }
+  throw operationError;
+}
+
 export async function runWithCleanup(operation, cleanup) {
-  let operationError;
-  let cleanupError;
-  let result;
-
-  try {
-    result = await operation();
-  } catch (error) {
-    operationError = error;
-  }
-
-  try {
-    await cleanup();
-  } catch (error) {
-    cleanupError = error;
-  }
+  const { result, error: operationError } = await captureError(operation);
+  const { error: cleanupError } = await captureError(cleanup);
 
   if (operationError instanceof Error) {
-    if (cleanupError) {
-      operationError.message += `\n\nCleanup failed: ${
-        cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
-      }`;
-    }
-    throw operationError;
+    throwOperationError(operationError, cleanupError);
   }
   if (cleanupError) {
     throw cleanupError;
