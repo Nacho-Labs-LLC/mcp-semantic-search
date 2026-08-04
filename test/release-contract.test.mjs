@@ -21,7 +21,7 @@ test('the default test gate is deterministic and integration is explicit', async
 
 test('the release workflow verifies all quality gates and cached integration coverage before publishing', async () => {
   const workflow = await readRepositoryFile('.github/workflows/npm-publish.yml');
-  const expectedTransformerCachePath = '${{ runner.home }}/.cache/mcp-semantic-search/transformers';
+  const expectedTransformerCachePath = '${{ github.workspace }}/.cache/mcp-semantic-search/transformers';
 
   for (const command of ['lint', 'typecheck', 'build', 'test', 'test:integration']) {
     assert.match(workflow, new RegExp(`npm run ${command}`));
