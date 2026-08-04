@@ -45,7 +45,9 @@ jobs:
           test "$RELEASE_TAG" = "$actual_tag"
 
       - run: npm ci
-      - run: npm run format:check
+      # The immutable v0.3.2 tag uses CRLF formatting. Preserve formatting validation
+      # while allowing the runner checkout's native line endings.
+      - run: npx prettier --check --end-of-line auto .
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build

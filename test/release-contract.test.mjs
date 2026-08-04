@@ -23,7 +23,7 @@ test('the release workflow verifies all quality gates and cached integration cov
   const workflow = await readRepositoryFile('.github/workflows/npm-publish.yml');
   const expectedTransformerCachePath = '${{ runner.home }}/.cache/mcp-semantic-search/transformers';
 
-  for (const command of ['format:check', 'lint', 'typecheck', 'build', 'test', 'test:integration']) {
+  for (const command of ['lint', 'typecheck', 'build', 'test', 'test:integration']) {
     assert.match(workflow, new RegExp(`npm run ${command}`));
   }
   assert.match(workflow, /actions\/cache@v4/);
@@ -33,6 +33,7 @@ test('the release workflow verifies all quality gates and cached integration cov
     new RegExp(`MCP_SEMANTIC_TEST_CACHE_DIR: ${expectedTransformerCachePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
   );
   assert.match(workflow, /npm publish --provenance --access public/);
+  assert.match(workflow, /npx prettier --check --end-of-line auto \./);
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /release_tag:/);
   assert.match(workflow, /ref: \$\{\{ env\.RELEASE_TAG \}\}/);
