@@ -48,6 +48,7 @@ test('the published Node support contract matches the README and release workflo
   const workflow = await readRepositoryFile('.github/workflows/npm-publish.yml');
 
   assert.equal(packageJson.engines.node, '>=20.9.0');
+  assert.equal(packageJson.repository.url, 'git+https://github.com/Nacho-Labs-LLC/mcp-semantic-search.git');
   assert.equal(packageLock.packages[''].engines.node, packageJson.engines.node);
   assert.match(readme, /\*\*Node\.js 20\.9\+\*\*/);
   assert.match(workflow, /node-version:\s*24/);
