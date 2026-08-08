@@ -2,10 +2,25 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  ErrorCode,
+  ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
+  McpError,
+  ReadResourceRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { EnhancedSemanticSearch } from '@nacho-labs/nachos-embeddings';
 import type { EmbeddingProvider } from '@nacho-labs/nachos-embeddings';
 import { resolve } from 'node:path';
+import {
+  DEFAULT_INDEX_ID,
+  DOCUMENT_RESOURCE_TEMPLATE_URI,
+  INDEX_MANIFEST_URI,
+  INDEX_STATS_URI,
+  REGISTERED_RESOURCE_URIS,
+  buildDocumentResourceUri,
+} from './product.js';
 
 const VERSION = '0.3.2';
 const MAX_LENGTH = 1_000_000;
@@ -105,32 +120,29 @@ const search = new EnhancedSemanticSearch({
   verbose: config.verbose,
 });
 
-async function initializeSearch(attempt: number, maxRetries: number): Promise<void> {
-  if (config.verbose) {
-    console.error(`[Init] Attempt ${attempt}/${maxRetries}`);
-  }
-  await search.init();
-  if (config.verbose) {
-    console.error(`[Init] Loaded ${search.size()} documents`);
-  }
-}
-
-async function handleInitializationFailure(attempt: number, maxRetries: number, err: unknown): Promise<void> {
-  if (attempt === maxRetries) {
-    console.error('[Init] Failed after', maxRetries, 'attempts. Internet required on first run (~25MB download).', err);
-    throw err;
-  }
-  console.error(`[Init] Retry in 2s...`, err);
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-}
-
 async function initWithRetry(maxRetries = 3): Promise<void> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      await initializeSearch(attempt, maxRetries);
+      if (config.verbose) {
+        console.error(`[Init] Attempt ${attempt}/${maxRetries}`);
+      }
+      await search.init();
+      if (config.verbose) {
+        console.error(`[Init] Loaded ${search.size()} documents`);
+      }
       return;
     } catch (err) {
-      await handleInitializationFailure(attempt, maxRetries, err);
+      if (attempt === maxRetries) {
+        console.error(
+          '[Init] Failed after',
+          maxRetries,
+          'attempts. Internet required on first run (~25MB download).',
+          err,
+        );
+        throw err;
+      }
+      console.error(`[Init] Retry in 2s...`, err);
+      await new Promise((r) => setTimeout(r, 2000));
     }
   }
 }
@@ -149,35 +161,6 @@ function formatUptime(seconds: number): string {
     return `${Math.floor(seconds / 60)}m`;
   }
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
-}
-
-function matchesKind(meta: any, kind: string | undefined): boolean {
-  return !kind || meta?.kind === kind;
-}
-
-function matchesTags(meta: any, tags: string[] | undefined): boolean {
-  return !tags || Boolean(meta?.tags && tags.some((tag) => meta.tags?.includes(tag)));
-}
-
-function hasValidSince(parsedSince: number | undefined): parsedSince is number {
-  return parsedSince !== undefined && !isNaN(parsedSince);
-}
-
-function isBeforeSince(meta: any, parsedSince: number): boolean {
-  return Boolean(meta?.timestamp && meta.timestamp < parsedSince);
-}
-
-function matchesSince(meta: any, parsedSince: number | undefined): boolean {
-  return !hasValidSince(parsedSince) || !isBeforeSince(meta, parsedSince);
-}
-
-function matchesMetadata(
-  meta: any,
-  kind: string | undefined,
-  tags: string[] | undefined,
-  parsedSince: number | undefined,
-) {
-  return matchesKind(meta, kind) && matchesTags(meta, tags) && matchesSince(meta, parsedSince);
 }
 
 class OpQueue {
@@ -211,57 +194,164 @@ const server = new McpServer(
   { capabilities: { logging: {} } },
 );
 
-function buildHealthResponse() {
-  const uptime = Math.floor((Date.now() - metrics.startTime) / 1000);
-  const model = config.provider === 'bedrock' ? config.bedrockModel : config.model;
-  const providerSetting =
-    config.provider === 'bedrock' ? `Region: ${config.bedrockRegion}` : `Cache: ${config.cacheDir}`;
+interface ResourceMetadata {
+  kind?: string;
+  tags?: string[];
+  timestamp?: number;
+  parentId?: string;
+}
 
+interface PersistedResourceDocument {
+  id: string;
+  text: string;
+  metadata?: ResourceMetadata;
+}
+
+function getResourceDocuments(): PersistedResourceDocument[] {
+  return search.export() as PersistedResourceDocument[];
+}
+
+function getResourceModelLabel(): string {
+  return config.provider === 'bedrock' ? config.bedrockModel : config.model;
+}
+
+function getLatestDocumentTimestamp(documents: PersistedResourceDocument[]): string | undefined {
+  const latest = documents.reduce<number | undefined>((current, document) => {
+    const timestamp = document.metadata?.timestamp;
+    return timestamp !== undefined && (current === undefined || timestamp > current) ? timestamp : current;
+  }, undefined);
+
+  return latest === undefined || Number.isNaN(latest) ? undefined : new Date(latest).toISOString();
+}
+
+function countMetadata(documents: PersistedResourceDocument[], key: 'kind' | 'tags'): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const document of documents) {
+    const values =
+      key === 'tags' ? (document.metadata?.tags ?? []) : document.metadata?.kind ? [document.metadata.kind] : [];
+    for (const value of values) counts[value] = (counts[value] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function renderJsonResource(uri: string, value: unknown) {
   return {
-    content: [
-      {
-        type: 'text' as const,
-        text: [
-          '✅ Healthy',
-          '',
-          '📊 Metrics:',
-          `   Documents: ${search.size()}`,
-          `   Searches: ${metrics.searches}`,
-          `   Added: ${metrics.documentsAdded}`,
-          `   Removed: ${metrics.documentsRemoved}`,
-          `   Errors: ${metrics.errors}`,
-          `   Uptime: ${formatUptime(uptime)}`,
-          '',
-          '⚙️ Config:',
-          `   Provider: ${config.provider}`,
-          `   Model: ${model}`,
-          `   ${providerSetting}`,
-          `   Store: ${config.storePath}`,
-          `   Min similarity: ${config.minSimilarity}`,
-          `   Auto-chunk: ${config.autoChunk}`,
-          `   Dedup: exact=${config.deduplicateExact}, fuzzy=${config.deduplicateSimilarity}`,
-          `   Temporal boost: ${config.temporalBoost}`,
-        ].join('\n'),
-      },
-    ],
+    contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(value, null, 2) }],
   };
 }
 
-async function getHealthResponse() {
+function parseSemanticResourceUri(
+  uri: string,
+): { type: 'manifest' } | { type: 'stats' } | { type: 'document'; documentId: string } | undefined {
   try {
-    await search.search('test', { limit: 1 });
-    return buildHealthResponse();
-  } catch (err) {
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: `❌ Unhealthy: ${err instanceof Error ? err.message : String(err)}`,
-        },
-      ],
-    };
+    const parsed = new URL(uri);
+    if (parsed.protocol !== 'semantic-search:' || parsed.hostname !== 'indexes') return undefined;
+    const [indexId, resourceType, documentId, extra] = parsed.pathname
+      .split('/')
+      .filter(Boolean)
+      .map((segment) => decodeURIComponent(segment));
+    if (indexId !== DEFAULT_INDEX_ID || extra !== undefined) return undefined;
+    if (resourceType === 'manifest' && documentId === undefined) return { type: 'manifest' };
+    if (resourceType === 'stats' && documentId === undefined) return { type: 'stats' };
+    if (resourceType === 'documents' && documentId) return { type: 'document', documentId };
+  } catch {
+    return undefined;
   }
+  return undefined;
 }
+
+server.server.registerCapabilities({ resources: {} });
+
+server.server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  const documents = getResourceDocuments();
+  const lastModified = getLatestDocumentTimestamp(documents);
+  const annotations = {
+    audience: ['user', 'assistant'] as const,
+    ...(lastModified ? { lastModified } : {}),
+  };
+  return {
+    resources: [
+      {
+        uri: INDEX_MANIFEST_URI,
+        name: 'semantic_index_manifest',
+        title: 'Semantic Index Manifest',
+        description: 'Stable manifest for the active semantic-search index.',
+        mimeType: 'application/json',
+        annotations: { ...annotations, priority: 1 },
+      },
+      {
+        uri: INDEX_STATS_URI,
+        name: 'semantic_index_stats',
+        title: 'Semantic Index Stats',
+        description: 'Corpus stats and runtime counters for the active semantic-search index.',
+        mimeType: 'application/json',
+        annotations: { ...annotations, priority: 0.9 },
+      },
+    ],
+  };
+});
+
+server.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({
+  resourceTemplates: [
+    {
+      name: 'semantic_document',
+      title: 'Indexed Document',
+      uriTemplate: DOCUMENT_RESOURCE_TEMPLATE_URI,
+      description: 'Read a single indexed document by id from the active semantic-search index.',
+      mimeType: 'application/json',
+      annotations: { audience: ['user', 'assistant'], priority: 0.8 },
+    },
+  ],
+}));
+
+server.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  const resource = parseSemanticResourceUri(request.params.uri);
+  if (!resource) throw new McpError(ErrorCode.InvalidParams, `Resource ${request.params.uri} not found`);
+
+  const documents = getResourceDocuments();
+  if (resource.type === 'manifest') {
+    return renderJsonResource(INDEX_MANIFEST_URI, {
+      indexId: DEFAULT_INDEX_ID,
+      resourceRoot: `semantic-search://indexes/${DEFAULT_INDEX_ID}`,
+      storePath: config.storePath,
+      provider: config.provider,
+      model: getResourceModelLabel(),
+      documentCount: documents.length,
+      listedResources: [...REGISTERED_RESOURCE_URIS],
+      resourceTemplates: [DOCUMENT_RESOURCE_TEMPLATE_URI],
+      metricsStartedAt: new Date(metrics.startTime).toISOString(),
+    });
+  }
+  if (resource.type === 'stats') {
+    return renderJsonResource(INDEX_STATS_URI, {
+      indexId: DEFAULT_INDEX_ID,
+      storePath: config.storePath,
+      provider: config.provider,
+      model: getResourceModelLabel(),
+      counts: {
+        documents: documents.length,
+        rootDocuments: documents.filter((document) => !document.metadata?.parentId).length,
+        chunkDocuments: documents.filter((document) => document.metadata?.parentId).length,
+      },
+      metadata: { kinds: countMetadata(documents, 'kind'), tags: countMetadata(documents, 'tags') },
+      usage: {
+        searches: metrics.searches,
+        documentsAdded: metrics.documentsAdded,
+        documentsRemoved: metrics.documentsRemoved,
+        errors: metrics.errors,
+        uptimeSeconds: Math.floor((Date.now() - metrics.startTime) / 1000),
+      },
+    });
+  }
+
+  const document = documents.find((candidate) => candidate.id === resource.documentId);
+  if (!document) throw new McpError(ErrorCode.InvalidParams, `Document ${resource.documentId} not found`);
+  return renderJsonResource(buildDocumentResourceUri(document.id), {
+    id: document.id,
+    text: document.text,
+    metadata: document.metadata ?? {},
+  });
+});
 
 server.registerTool(
   'semantic_health',
@@ -270,7 +360,52 @@ server.registerTool(
     description: 'Server status, metrics, and configuration',
     inputSchema: z.object({}),
   },
-  getHealthResponse,
+  async () => {
+    try {
+      await search.search('test', { limit: 1 });
+
+      const uptime = Math.floor((Date.now() - metrics.startTime) / 1000);
+      const uptimeStr = formatUptime(uptime);
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: [
+              '✅ Healthy',
+              '',
+              '📊 Metrics:',
+              `   Documents: ${search.size()}`,
+              `   Searches: ${metrics.searches}`,
+              `   Added: ${metrics.documentsAdded}`,
+              `   Removed: ${metrics.documentsRemoved}`,
+              `   Errors: ${metrics.errors}`,
+              `   Uptime: ${uptimeStr}`,
+              '',
+              '⚙️ Config:',
+              `   Provider: ${config.provider}`,
+              `   Model: ${config.provider === 'bedrock' ? config.bedrockModel : config.model}`,
+              `   ${config.provider === 'bedrock' ? `Region: ${config.bedrockRegion}` : `Cache: ${config.cacheDir}`}`,
+              `   Store: ${config.storePath}`,
+              `   Min similarity: ${config.minSimilarity}`,
+              `   Auto-chunk: ${config.autoChunk}`,
+              `   Dedup: exact=${config.deduplicateExact}, fuzzy=${config.deduplicateSimilarity}`,
+              `   Temporal boost: ${config.temporalBoost}`,
+            ].join('\n'),
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `❌ Unhealthy: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+      };
+    }
+  },
 );
 
 server.registerTool(
@@ -295,7 +430,13 @@ server.registerTool(
       const results = await search.search(query, {
         limit,
         ...(minSimilarity !== undefined && { minSimilarity }),
-        filter: (meta: any) => matchesMetadata(meta, kind, tags, parsedSince),
+        filter: (meta: any) => {
+          if (kind && meta?.kind !== kind) return false;
+          if (tags && (!meta?.tags || !tags.some((t) => meta.tags?.includes(t)))) return false;
+          if (parsedSince !== undefined && !isNaN(parsedSince) && meta?.timestamp && meta.timestamp < parsedSince)
+            return false;
+          return true;
+        },
       });
 
       metrics.searches++;
@@ -327,6 +468,13 @@ server.registerTool(
             type: 'text' as const,
             text: `🔍 Found ${results.length} in ${elapsed}ms:\n\n${formatted}`,
           },
+          ...results.map((result) => ({
+            type: 'resource_link' as const,
+            uri: buildDocumentResourceUri(result.id),
+            name: result.id,
+            mimeType: 'application/json',
+            description: `Indexed document "${result.id}"`,
+          })),
         ],
       };
     });
