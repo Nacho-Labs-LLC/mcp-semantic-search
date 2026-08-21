@@ -1,6 +1,6 @@
 {
   "name": "@nacho-labs/mcp-semantic-search",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "MCP server for semantic search — give Claude Code, Cursor, and other AI tools persistent memory via local Transformers.js or AWS Bedrock embeddings",
   "type": "module",
   "main": "./dist/index.js",
@@ -79,11 +79,10 @@
   "devDependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1101.0",
     "@babel/core": "^8.0.1",
-    "@babel/eslint-parser": "^7.29.7",
-    "@babel/preset-typescript": "^7.29.7",
+    "@babel/eslint-parser": "^8.0.1",
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.1.2",
-    "eslint": "^9.39.5",
+    "eslint": "^10.9.0",
     "prettier": "^3.9.6",
     "typescript": "^7.0.2"
   }
