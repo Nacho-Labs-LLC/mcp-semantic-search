@@ -408,6 +408,16 @@ server.registerTool(
   },
 );
 
+function createMetadataFilter(kind?: string, tags?: string[], parsedSince?: number) {
+  return (meta: any) => {
+    if (kind && meta?.kind !== kind) return false;
+    if (tags && (!meta?.tags || !tags.some((t) => meta.tags?.includes(t)))) return false;
+    if (parsedSince !== undefined && !isNaN(parsedSince) && meta?.timestamp && meta.timestamp < parsedSince)
+      return false;
+    return true;
+  };
+}
+
 server.registerTool(
   'semantic_search',
   {
@@ -430,13 +440,7 @@ server.registerTool(
       const results = await search.search(query, {
         limit,
         ...(minSimilarity !== undefined && { minSimilarity }),
-        filter: (meta: any) => {
-          if (kind && meta?.kind !== kind) return false;
-          if (tags && (!meta?.tags || !tags.some((t) => meta.tags?.includes(t)))) return false;
-          if (parsedSince !== undefined && !isNaN(parsedSince) && meta?.timestamp && meta.timestamp < parsedSince)
-            return false;
-          return true;
-        },
+        filter: createMetadataFilter(kind, tags, parsedSince),
       });
 
       metrics.searches++;
