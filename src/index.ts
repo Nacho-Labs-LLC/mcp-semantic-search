@@ -415,8 +415,8 @@ server.registerTool(
     description: 'Search by meaning with optional metadata filters',
     inputSchema: z.object({
       query: z.string().describe('Search query'),
-      limit: z.number().optional().default(5).describe('Max results'),
-      minSimilarity: z.number().optional().describe('Min score (0-1)'),
+      limit: z.number().int().min(1).max(100).optional().default(5).describe('Max results'),
+      minSimilarity: z.number().min(0).max(1).optional().describe('Min score (0-1)'),
       kind: z.string().optional().describe('Filter by metadata.kind'),
       tags: z.array(z.string()).optional().describe('Filter by metadata.tags'),
       since: z.string().optional().describe('Filter by metadata.timestamp >= ISO date'),
