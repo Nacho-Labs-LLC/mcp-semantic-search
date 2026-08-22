@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { EnhancedSemanticSearch } from '@nacho-labs/nachos-embeddings';
 import type { EmbeddingProvider } from '@nacho-labs/nachos-embeddings';
 import { resolve } from 'node:path';
+import { OpQueue } from './op-queue.js';
 import {
   DEFAULT_INDEX_ID,
   DOCUMENT_RESOURCE_TEMPLATE_URI,
@@ -163,31 +164,9 @@ function formatUptime(seconds: number): string {
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 }
 
-class OpQueue {
-  private queue = Promise.resolve();
-
-  async run<T>(fn: () => Promise<T>): Promise<T> {
-    const prev = this.queue;
-    let resolve: ((val: void | PromiseLike<void>) => void) | undefined;
-
-    this.queue = new Promise<void>((res) => {
-      resolve = res;
-    });
-
-    try {
-      await prev.catch(() => {});
-      const result = await fn();
-      return result;
-    } catch (err) {
-      metrics.errors++;
-      throw err;
-    } finally {
-      resolve!();
-    }
-  }
-}
-
-const opQueue = new OpQueue();
+const opQueue = new OpQueue(() => {
+  metrics.errors++;
+});
 
 const server = new McpServer(
   { name: 'mcp-semantic-search-enhanced', version: VERSION },

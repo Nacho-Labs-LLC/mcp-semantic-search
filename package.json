@@ -28,7 +28,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test:unit": "node --test test/integration-support.test.mjs test/release-contract.test.mjs",
+    "test:unit": "npm run build && node --test test/integration-support.test.mjs test/release-contract.test.mjs test/op-queue.test.mjs",
     "test:integration": "npm run build && node --test test/stdio-smoke.test.mjs",
     "test": "npm run test:unit",
     "clean": "rm -rf dist *.tsbuildinfo",
