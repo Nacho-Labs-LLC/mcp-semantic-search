@@ -240,6 +240,16 @@ function renderJsonResource(uri: string, value: unknown) {
   };
 }
 
+function formatSearchResults(results: Array<{ similarity: number; text: string; metadata?: any }>): string {
+  return results
+    .map((r, i) => {
+      const preview = r.text.substring(0, 200) + (r.text.length > 200 ? '...' : '');
+      const metaStr = r.metadata && Object.keys(r.metadata).length > 0 ? `\n   📎 ${JSON.stringify(r.metadata)}` : '';
+      return `${i + 1}. [${(r.similarity * 100).toFixed(0)}%] ${preview}${metaStr}`;
+    })
+    .join('\n\n');
+}
+
 function parseSemanticResourceUri(
   uri: string,
 ): { type: 'manifest' } | { type: 'stats' } | { type: 'document'; documentId: string } | undefined {
@@ -453,14 +463,7 @@ server.registerTool(
         };
       }
 
-      const formatted = results
-        .map((r, i) => {
-          const preview = r.text.substring(0, 200) + (r.text.length > 200 ? '...' : '');
-          const metaStr =
-            r.metadata && Object.keys(r.metadata).length > 0 ? `\n   📎 ${JSON.stringify(r.metadata)}` : '';
-          return `${i + 1}. [${(r.similarity * 100).toFixed(0)}%] ${preview}${metaStr}`;
-        })
-        .join('\n\n');
+      const formatted = formatSearchResults(results);
 
       return {
         content: [
