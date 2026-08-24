@@ -542,7 +542,7 @@ server.registerTool(
     return opQueue.run(async () => {
       const startTime = Date.now();
 
-      await search.addDocuments(documents.map((d) => ({ ...d, metadata: d.metadata })));
+      await search.addDocuments(documents);
 
       metrics.documentsAdded += documents.length;
       const elapsed = Date.now() - startTime;
