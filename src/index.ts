@@ -436,13 +436,14 @@ server.registerTool(
     return opQueue.run(async () => {
       const startTime = Date.now();
       const parsedSince = since ? Date.parse(since) : undefined;
+      const targetTags = tags ? new Set(tags) : undefined;
 
       const results = await search.search(query, {
         limit,
         ...(minSimilarity !== undefined && { minSimilarity }),
         filter: (meta: any) => {
           if (kind && meta?.kind !== kind) return false;
-          if (tags && (!meta?.tags || !tags.some((t) => meta.tags?.includes(t)))) return false;
+          if (targetTags && (!meta?.tags || !meta.tags.some((t: string) => targetTags.has(t)))) return false;
           if (parsedSince !== undefined && !isNaN(parsedSince) && meta?.timestamp && meta.timestamp < parsedSince)
             return false;
           return true;
