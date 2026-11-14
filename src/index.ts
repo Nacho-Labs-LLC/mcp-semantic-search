@@ -10,9 +10,11 @@ import {
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { EnhancedSemanticSearch } from '@nacho-labs/nachos-embeddings';
+import { SemanticSearch } from '@nacho-labs/nachos-embeddings';
 import type { EmbeddingProvider } from '@nacho-labs/nachos-embeddings';
 import { resolve } from 'node:path';
+import { getConfig, type Config } from './config.js';
+import { initWithRetry } from './init.js';
 import { OpQueue } from './op-queue.js';
 import {
   DEFAULT_INDEX_ID,
@@ -23,7 +25,7 @@ import {
   buildDocumentResourceUri,
 } from './product.js';
 
-const VERSION = '0.3.2';
+const VERSION = '0.5.0';
 const MAX_LENGTH = 1_000_000;
 const MAX_ITEMS = 100;
 const metadataValueSchema = z.union([
@@ -33,45 +35,7 @@ const metadataValueSchema = z.union([
   z.array(z.string().max(MAX_LENGTH)).max(MAX_ITEMS),
 ]);
 
-function getConfig() {
-  const args = process.argv.slice(2);
-
-  function getArg(name: string, fallback: string): string {
-    const idx = args.indexOf(`--${name}`);
-    return idx !== -1 && idx + 1 < args.length ? args[idx + 1]! : fallback;
-  }
-
-  function getString(name: string, fallback: string): string {
-    const envName = `MCP_SEMANTIC_${name.toUpperCase().replace(/-/g, '_')}`;
-    return process.env[envName] ?? getArg(name, fallback);
-  }
-
-  function getBool(name: string, fallback: boolean): boolean {
-    const value = getString(name, fallback.toString());
-    return value === 'true' || value === '1';
-  }
-
-  return {
-    storePath: resolve(getString('store', '.semantic-store.json')),
-    minSimilarity: parseFloat(getString('similarity', '0.4')),
-    model: getString('model', 'Xenova/all-MiniLM-L6-v2'),
-    cacheDir: getString('cache-dir', '.cache/transformers'),
-    autoChunk: getBool('auto-chunk', true),
-    deduplicateExact: getBool('deduplicate-exact', true),
-    deduplicateSimilarity: parseFloat(getString('deduplicate-similarity', '0.95')),
-    temporalBoost: getBool('temporal-boost', true),
-    verbose: getBool('verbose', false),
-
-    // Bedrock provider settings
-    provider: getString('provider', 'transformers') as 'transformers' | 'bedrock',
-    bedrockRegion: getString('bedrock-region', 'us-east-1'),
-    bedrockModel: getString('bedrock-model', 'amazon.titan-embed-text-v2:0'),
-    bedrockProfile: getString('bedrock-profile', ''),
-    bedrockDimensions: parseInt(getString('bedrock-dimensions', '1024'), 10),
-  };
-}
-
-async function createProvider(config: ReturnType<typeof getConfig>): Promise<EmbeddingProvider | undefined> {
+async function createProvider(config: Config): Promise<EmbeddingProvider | undefined> {
   if (config.provider !== 'bedrock') {
     return undefined; // Use default Transformers.js
   }
@@ -87,7 +51,14 @@ async function createProvider(config: ReturnType<typeof getConfig>): Promise<Emb
   });
 }
 
-const config = getConfig();
+let config: Config;
+try {
+  config = getConfig();
+} catch (err) {
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exit(1);
+}
+config.storePath = resolve(config.storePath);
 
 interface Metrics {
   searches: number;
@@ -107,49 +78,22 @@ const metrics: Metrics = {
 
 const provider = await createProvider(config);
 
-const search = new EnhancedSemanticSearch({
+const search = new SemanticSearch({
   ...(provider ? { provider } : {}),
   minSimilarity: config.minSimilarity,
   model: config.model,
-  cacheDir: config.cacheDir,
+  ...(config.cacheDir ? { cacheDir: config.cacheDir } : {}),
   autoSave: true,
   storePath: config.storePath,
   autoChunk: config.autoChunk,
-  deduplicateExact: config.deduplicateExact,
-  deduplicateSimilarity: config.deduplicateSimilarity,
+  deduplicate: config.deduplicate,
+  onCorruptStore: config.onCorruptStore,
   temporalBoost: config.temporalBoost,
   verbose: config.verbose,
 });
 
-async function initWithRetry(maxRetries = 3): Promise<void> {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      if (config.verbose) {
-        console.error(`[Init] Attempt ${attempt}/${maxRetries}`);
-      }
-      await search.init();
-      if (config.verbose) {
-        console.error(`[Init] Loaded ${search.size()} documents`);
-      }
-      return;
-    } catch (err) {
-      if (attempt === maxRetries) {
-        console.error(
-          '[Init] Failed after',
-          maxRetries,
-          'attempts. Internet required on first run (~25MB download).',
-          err,
-        );
-        throw err;
-      }
-      console.error(`[Init] Retry in 2s...`, err);
-      await new Promise((r) => setTimeout(r, 2000));
-    }
-  }
-}
-
 try {
-  await initWithRetry();
+  await initWithRetry({ search, storePath: config.storePath, verbose: config.verbose });
 } catch {
   process.exit(1);
 }
@@ -374,11 +318,11 @@ server.registerTool(
               '⚙️ Config:',
               `   Provider: ${config.provider}`,
               `   Model: ${config.provider === 'bedrock' ? config.bedrockModel : config.model}`,
-              `   ${config.provider === 'bedrock' ? `Region: ${config.bedrockRegion}` : `Cache: ${config.cacheDir}`}`,
+              `   ${config.provider === 'bedrock' ? `Region: ${config.bedrockRegion}` : `Cache: ${config.cacheDir ?? 'library default (per-user)'}`}`,
               `   Store: ${config.storePath}`,
               `   Min similarity: ${config.minSimilarity}`,
               `   Auto-chunk: ${config.autoChunk}`,
-              `   Dedup: exact=${config.deduplicateExact}, fuzzy=${config.deduplicateSimilarity}`,
+              `   Dedup: ${JSON.stringify(config.deduplicate)}`,
               `   Temporal boost: ${config.temporalBoost}`,
             ].join('\n'),
           },
@@ -594,8 +538,7 @@ server.registerTool(
           '',
           'Features:',
           `   Auto-chunk: ${config.autoChunk}`,
-          `   Dedup (exact): ${config.deduplicateExact}`,
-          `   Dedup (fuzzy): ${config.deduplicateSimilarity > 0 ? config.deduplicateSimilarity : 'off'}`,
+          `   Dedup: ${JSON.stringify(config.deduplicate)}`,
           `   Temporal boost: ${config.temporalBoost}`,
           '',
           'Usage:',

@@ -10,7 +10,7 @@ no API keys, no cloud, no costs.
 ## Prerequisites
 
 - **Node.js 20.9+**
-- **Internet on first run** to download the embedding model (~25MB, cached permanently)
+- **Internet on first run** to download the embedding model (~25MB, cached in a per-user directory)
 
 ## Quick start
 
@@ -103,12 +103,32 @@ npx @nacho-labs/mcp-semantic-search \
 
 ### Environment variables
 
-| Variable                  | Description                    | Default                   |
-| ------------------------- | ------------------------------ | ------------------------- |
-| `MCP_SEMANTIC_STORE`      | Path to persistence file       | `.semantic-store.json`    |
-| `MCP_SEMANTIC_SIMILARITY` | Min similarity threshold (0-1) | `0.4`                     |
-| `MCP_SEMANTIC_MODEL`      | Embedding model                | `Xenova/all-MiniLM-L6-v2` |
-| `MCP_SEMANTIC_CACHE_DIR`  | Model cache directory          | `.cache/transformers`     |
+| Variable                              | Description                                                                    | Default                    |
+| ------------------------------------- | ------------------------------------------------------------------------------ | -------------------------- |
+| `MCP_SEMANTIC_STORE`                  | Path to persistence file                                                       | `.semantic-store.json`     |
+| `MCP_SEMANTIC_SIMILARITY`             | Min similarity threshold (0-1)                                                 | `0.4`                      |
+| `MCP_SEMANTIC_MODEL`                  | Embedding model                                                                | `Xenova/all-MiniLM-L6-v2`  |
+| `MCP_SEMANTIC_CACHE_DIR`              | Model cache directory                                                          | per-user cache (see below) |
+| `MCP_SEMANTIC_ON_CORRUPT_STORE`       | `throw` or `quarantine` when the store file is corrupt                         | `throw`                    |
+| `MCP_SEMANTIC_DEDUPLICATE_EXACT`      | Exact-duplicate detection (maps to `deduplicate: 'normalized'`)                | `true`                     |
+| `MCP_SEMANTIC_DEDUPLICATE_SIMILARITY` | Near-duplicate threshold; `> 0` takes precedence over exact (`{ similarity }`) | `0.95`                     |
+
+Both dedup settings off (`false` and `0`) disables deduplication.
+
+### Model cache
+
+Unless `MCP_SEMANTIC_CACHE_DIR` is set, models are cached per user and shared
+across projects: `$NACHOS_EMBEDDINGS_CACHE`, else the XDG cache directory, else
+`~/.cache/nachos-embeddings`. Earlier versions used `.cache/transformers` in the
+working directory; set `MCP_SEMANTIC_CACHE_DIR` to that path to keep using an
+existing cache instead of re-downloading (~90MB).
+
+### Corrupt store
+
+If the store file cannot be parsed, the server exits with a non-zero status and
+a message naming the file; it does not retry. Repair or delete the file, or set
+`MCP_SEMANTIC_ON_CORRUPT_STORE=quarantine` to rename the corrupt file aside and
+start with an empty index.
 
 ### With environment variables in MCP config
 

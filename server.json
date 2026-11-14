@@ -3,7 +3,7 @@
   "name": "io.github.nacho-labs-llc/mcp-semantic-search",
   "description": "Local semantic search for AI coding tools. Index decisions, patterns, and context — recall them by meaning, not keywords. Powered by nachos-embeddings (Transformers.js). No API keys, no cloud, no costs.",
   "title": "Semantic Search MCP Server",
-  "version": "0.3.2",
+  "version": "0.5.0",
   "repository": {
     "url": "https://github.com/nacho-labs-llc/mcp-semantic-search",
     "source": "github"
@@ -12,7 +12,7 @@
     {
       "registryType": "npm",
       "identifier": "@nacho-labs/mcp-semantic-search",
-      "version": "0.3.2",
+      "version": "0.5.0",
       "transport": {
         "type": "stdio"
       },
@@ -40,7 +40,14 @@
         },
         {
           "name": "MCP_SEMANTIC_CACHE_DIR",
-          "description": "Model cache directory. Defaults to .cache/transformers.",
+          "description": "Model cache directory. Defaults to the nachos-embeddings per-user cache ($NACHOS_EMBEDDINGS_CACHE, else XDG, else ~/.cache/nachos-embeddings).",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "MCP_SEMANTIC_ON_CORRUPT_STORE",
+          "description": "What to do when the store file is corrupt: throw (exit with an error) or quarantine (rename the file aside and start empty). Defaults to throw.",
           "isRequired": false,
           "isSecret": false,
           "format": "string"
